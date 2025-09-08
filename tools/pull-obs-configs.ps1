@@ -1,19 +1,50 @@
-<# obs_pull_configs.ps1  (simple, no basic.ini)
+<# pull-obs-configs.ps1  (simple, keeps basic.ini, scrubs secrets)
 
-   Usage examples:
-     # list known sheets
-     powershell -ExecutionPolicy Bypass -File tools\obs_pull_configs.ps1 -List
+  Usage examples:
+    # list known sheets
+    powershell -ExecutionPolicy Bypass -File tools\pull-obs-configs.ps1 -List
 
-     # pull configs from sheet-c
-     powershell -ExecutionPolicy Bypass -File tools\obs_pull_configs.ps1 -Sheet sheet-c
+    # pull configs from sheet-c
+    powershell -ExecutionPolicy Bypass -File tools\pull-obs-configs.ps1 -Sheet sheet-c
 #>
 
 param(
   [string]$Sheet = "",
-  [switch]$List
+  [switch]$List,
+  [switch]$ScrubRepo,
+  [string]$ScrubPath = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# Scrub helpers
+function Scrub-FileSecrets {
+  param([Parameter(Mandatory=$true)][string]$Path)
+
+  $text = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+  if ($null -eq $text) { return }
+
+  $orig = $text
+
+  # JSON-like fields
+  $text = [regex]::Replace($text, '(?i)\"(access_?token|refresh_?token|id_?token|token|api_?key|client_?secret|client_?id|stream_?key|key|authorization|password|bearer)\"\s*:\s*\".*?\"', '"$1": "REDACTED"')
+
+  # INI-like key=value
+  $text = [regex]::Replace($text, '(?im)^(\s*)(key|stream_?key|token|access_?token|refresh_?token|api_?key|client_?secret|client_?id|authorization|password)\s*=\s*.*$', '${1}$2=REDACTED')
+
+  if ($text -ne $orig) {
+    $text | Set-Content -LiteralPath $Path -Encoding UTF8
+  }
+}
+
+function Scrub-DirectorySecrets {
+  param([Parameter(Mandatory=$true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path)) { return }
+  Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -in '.json', '.ini', '.txt', '.yml', '.yaml' } |
+    ForEach-Object { Scrub-FileSecrets -Path $_.FullName }
+}
 
 # Map each sheet to its OBS config folder
 $SheetMap = @{
@@ -27,6 +58,16 @@ if ($List) {
   $SheetMap.GetEnumerator() | Sort-Object Key | ForEach-Object {
     "{0}`t{1}" -f $_.Key, $_.Value
   }
+  exit 0
+}
+
+# Scrub-only mode (keeps basic.ini, scrubs secrets under obs or provided path)
+if ($ScrubRepo -or ($ScrubPath -and $ScrubPath -ne "")) {
+  $RepoRoot  = (Resolve-Path "$PSScriptRoot\..").Path
+  $PathToScrub = if ($ScrubPath -and $ScrubPath -ne "") { (Resolve-Path -LiteralPath $ScrubPath).Path } else { Join-Path $RepoRoot "obs" }
+  Write-Host "🧹 Scrubbing secrets under: $PathToScrub"
+  Scrub-DirectorySecrets -Path $PathToScrub
+  Write-Host "✅ Scrub complete"
   exit 0
 }
 
@@ -60,13 +101,10 @@ foreach ($rel in $ToCopy) {
   }
 }
 
-# Remove basic.ini if it somehow slipped in
-$basicIni = Join-Path $TargetDir "basic\basic.ini"
-if (Test-Path $basicIni) {
-  Remove-Item $basicIni -Force
-}
+# Ensure secrets are scrubbed from copied configs (including basic.ini)
+Scrub-DirectorySecrets -Path $TargetDir
 
-Write-Host "✅ Pulled OBS config for '$Sheet' (basic.ini removed)"
+Write-Host "✅ Pulled OBS config for '$Sheet' (secrets scrubbed)"
 Write-Host "   Source : $ObsSrc"
 Write-Host "   Target : $TargetDir"
 Write-Host ""
