@@ -1,0 +1,742 @@
+{
+    "DesktopAudioDevice1": {
+        "prev_ver": 503447555,
+        "name": "Desktop Audio",
+        "uuid": "edd8797e-40ad-4d28-90f4-89b0fe0efff6",
+        "id": "wasapi_output_capture",
+        "versioned_id": "wasapi_output_capture",
+        "settings": {
+            "device_id": "default"
+        },
+        "sync": 0,
+        "hotkeys": {
+            "libobs.mute": [],
+            "libobs.unmute": [],
+            "libobs.push-to-mute": [],
+            "libobs.push-to-talk": []
+        },
+        "deinterlace_mode": 0,
+        "deinterlace_field_order": 0,
+        "monitoring_type": 0,
+        "private_settings": {},
+        "volume": 1.0,
+        "balance": 0.5,
+        "mixers": 255,
+        "flags": 0,
+        "enabled": true,
+        "muted": true,
+        "push-to-mute": false,
+        "push-to-mute-delay": 0,
+        "push-to-talk": false,
+        "push-to-talk-delay": 0
+    },
+    "current_scene": "Zoomed out - 4 - houses middle 2",
+    "current_program_scene": "Zoomed out - 4 - houses middle 2",
+    "scene_order": [
+        {
+            "name": "Zoomed out - 4 - houses middle 2"
+        },
+        {
+            "name": "Zoomed in - 4 - houses middle 2"
+        }
+    ],
+    "sources": [
+        {
+            "prev_ver": 503447555,
+            "name": "Far Wall",
+            "uuid": "3e5e995b-8ef9-4ce4-b8d1-3241efdb2058",
+            "id": "ffmpeg_source",
+            "versioned_id": "ffmpeg_source",
+            "settings": {
+                "input": "rtsp://admin:PointCurling2016@192.168.1.41:554/h264Preview_01_main",
+                "hw_decode": false,
+                "is_local_file": false,
+                "buffering_mb": 8
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": true,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "MediaSource.Restart": [],
+                "MediaSource.Play": [],
+                "MediaSource.Pause": [],
+                "MediaSource.Stop": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Near House",
+            "uuid": "a5e15b79-d9d2-47c4-b074-10afa8e4f07f",
+            "id": "ffmpeg_source",
+            "versioned_id": "ffmpeg_source",
+            "settings": {
+                "input": "rtsps://192.168.1.30:7441/US5lmJymmlLHKW88?enableSrtp",
+                "hw_decode": false,
+                "is_local_file": false,
+                "buffering_mb": 8
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": true,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "MediaSource.Restart": [],
+                "MediaSource.Play": [],
+                "MediaSource.Pause": [],
+                "MediaSource.Stop": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Far House",
+            "uuid": "67c5c081-f2e3-4512-a165-c1b57fc7a0a5",
+            "id": "ffmpeg_source",
+            "versioned_id": "ffmpeg_source",
+            "settings": {
+                "input": "rtsps://192.168.1.30:7441/wXkXGUuFgpQ52Dlm?enableSrtp",
+                "hw_decode": false,
+                "is_local_file": false,
+                "buffering_mb": 8
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": true,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "MediaSource.Restart": [],
+                "MediaSource.Play": [],
+                "MediaSource.Pause": [],
+                "MediaSource.Stop": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Near Wall",
+            "uuid": "0cfd395a-0217-4ec8-8b2c-4569223279d0",
+            "id": "ffmpeg_source",
+            "versioned_id": "ffmpeg_source",
+            "settings": {
+                "input": "rtsp://admin:PointCurling2016@192.168.1.40:554/h264Preview_01_main",
+                "hw_decode": true,
+                "is_local_file": false,
+                "buffering_mb": 8
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": true,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "MediaSource.Restart": [],
+                "MediaSource.Play": [],
+                "MediaSource.Pause": [],
+                "MediaSource.Stop": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Zoomed out - 4 - houses middle 2",
+            "uuid": "7f1fd9aa-8d22-4acd-b257-a5d936ecf2d8",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 5,
+                "custom_size": false,
+                "items": [
+                    {
+                        "name": "Near Wall",
+                        "source_uuid": "0cfd395a-0217-4ec8-8b2c-4569223279d0",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": 774.4708251953125,
+                            "y": 0.0
+                        },
+                        "scale": {
+                            "x": 0.28125,
+                            "y": 0.3333333432674408
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 5,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 1080.0,
+                            "y": 720.0
+                        },
+                        "crop_left": 1250,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 61,
+                        "id": 5,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Far Wall",
+                        "source_uuid": "3e5e995b-8ef9-4ce4-b8d1-3241efdb2058",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": -41.0,
+                            "y": 0.0
+                        },
+                        "scale": {
+                            "x": 0.28125,
+                            "y": 0.3333333432674408
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 5,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 1080.0,
+                            "y": 720.0
+                        },
+                        "crop_left": 1100,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 1,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Near Wall",
+                        "source_uuid": "0cfd395a-0217-4ec8-8b2c-4569223279d0",
+                        "visible": true,
+                        "locked": true,
+                        "rot": -0.10000000149011612,
+                        "pos": {
+                            "x": 504.0,
+                            "y": 206.00003051757812
+                        },
+                        "scale": {
+                            "x": 4.0,
+                            "y": 4.0
+                        },
+                        "align": 5,
+                        "bounds_type": 1,
+                        "bounds_align": 5,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 270.0,
+                            "y": 270.0
+                        },
+                        "crop_left": 1887,
+                        "crop_top": 100,
+                        "crop_right": 1775,
+                        "crop_bottom": 1942,
+                        "id": 2,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Near House",
+                        "source_uuid": "a5e15b79-d9d2-47c4-b074-10afa8e4f07f",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 90.0,
+                        "pos": {
+                            "x": 786.0,
+                            "y": 441.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 4,
+                        "bounds_crop": false,
+                        "bounds": {
+                            "x": 290.0,
+                            "y": 293.0
+                        },
+                        "crop_left": 640,
+                        "crop_top": 0,
+                        "crop_right": 320,
+                        "crop_bottom": 55,
+                        "id": 3,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Far House",
+                        "source_uuid": "67c5c081-f2e3-4512-a165-c1b57fc7a0a5",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 90.0,
+                        "pos": {
+                            "x": 775.0,
+                            "y": -26.855199813842773
+                        },
+                        "scale": {
+                            "x": 0.5625,
+                            "y": 0.66666668653488159
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 4,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 272.0,
+                            "y": 270.0
+                        },
+                        "crop_left": 616,
+                        "crop_top": 0,
+                        "crop_right": 320,
+                        "crop_bottom": 55,
+                        "id": 4,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    }
+                ]
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": [],
+                "libobs.show_scene_item.5": [],
+                "libobs.hide_scene_item.5": [],
+                "libobs.show_scene_item.1": [],
+                "libobs.hide_scene_item.1": [],
+                "libobs.show_scene_item.2": [],
+                "libobs.hide_scene_item.2": [],
+                "libobs.show_scene_item.3": [],
+                "libobs.hide_scene_item.3": [],
+                "libobs.show_scene_item.4": [],
+                "libobs.hide_scene_item.4": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 503447555,
+            "name": "Zoomed in - 4 - houses middle 2",
+            "uuid": "d1e0c442-4afd-4fa9-9d6c-b8a9ab41b2aa",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 5,
+                "custom_size": false,
+                "items": [
+                    {
+                        "name": "Far Wall",
+                        "source_uuid": "3e5e995b-8ef9-4ce4-b8d1-3241efdb2058",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 0.0,
+                        "pos": {
+                            "x": -360.0,
+                            "y": 0.0
+                        },
+                        "scale": {
+                            "x": 2.0,
+                            "y": 2.0
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 0,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 3840.0,
+                            "y": 2160.0
+                        },
+                        "crop_left": 1600,
+                        "crop_top": 0,
+                        "crop_right": 200,
+                        "crop_bottom": 900,
+                        "id": 1,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Near Wall",
+                        "source_uuid": "0cfd395a-0217-4ec8-8b2c-4569223279d0",
+                        "visible": true,
+                        "locked": true,
+                        "rot": -0.30000001192092896,
+                        "pos": {
+                            "x": 1130.0,
+                            "y": -1.434999942779541
+                        },
+                        "scale": {
+                            "x": 2.0,
+                            "y": 2.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 3840.0,
+                            "y": 2160.0
+                        },
+                        "crop_left": 1758,
+                        "crop_top": 125,
+                        "crop_right": 1100,
+                        "crop_bottom": 52,
+                        "id": 2,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Near Wall",
+                        "source_uuid": "0cfd395a-0217-4ec8-8b2c-4569223279d0",
+                        "visible": true,
+                        "locked": true,
+                        "rot": -0.10000000149011612,
+                        "pos": {
+                            "x": 715.0,
+                            "y": 400.0
+                        },
+                        "scale": {
+                            "x": 4.0,
+                            "y": 4.0
+                        },
+                        "align": 5,
+                        "bounds_type": 1,
+                        "bounds_align": 5,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 490.0,
+                            "y": 300.0
+                        },
+                        "crop_left": 1887,
+                        "crop_top": 100,
+                        "crop_right": 1775,
+                        "crop_bottom": 1942,
+                        "id": 3,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Near House",
+                        "source_uuid": "a5e15b79-d9d2-47c4-b074-10afa8e4f07f",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 89.699996948242188,
+                        "pos": {
+                            "x": 1204.0,
+                            "y": 683.0
+                        },
+                        "scale": {
+                            "x": 0.5625,
+                            "y": 0.66666668653488159
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 4,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 408.0,
+                            "y": 490.0
+                        },
+                        "crop_left": 650,
+                        "crop_top": 0,
+                        "crop_right": 320,
+                        "crop_bottom": 80,
+                        "id": 4,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Far House",
+                        "source_uuid": "67c5c081-f2e3-4512-a165-c1b57fc7a0a5",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 270.0,
+                        "pos": {
+                            "x": 715.0,
+                            "y": 401.0
+                        },
+                        "scale": {
+                            "x": 0.5625,
+                            "y": 0.66666668653488159
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 4,
+                        "bounds_crop": true,
+                        "bounds": {
+                            "x": 401.0,
+                            "y": 490.0
+                        },
+                        "crop_left": 641,
+                        "crop_top": 0,
+                        "crop_right": 320,
+                        "crop_bottom": 36,
+                        "id": 5,
+                        "group_item_backup": false,
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    }
+                ]
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": [],
+                "libobs.show_scene_item.1": [],
+                "libobs.hide_scene_item.1": [],
+                "libobs.show_scene_item.2": [],
+                "libobs.hide_scene_item.2": [],
+                "libobs.show_scene_item.3": [],
+                "libobs.hide_scene_item.3": [],
+                "libobs.show_scene_item.4": [],
+                "libobs.hide_scene_item.4": [],
+                "libobs.show_scene_item.5": [],
+                "libobs.hide_scene_item.5": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        }
+    ],
+    "groups": [],
+    "quick_transitions": [
+        {
+            "name": "Cut",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 1,
+            "fade_to_black": false
+        },
+        {
+            "name": "Fade",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 2,
+            "fade_to_black": false
+        },
+        {
+            "name": "Fade",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 3,
+            "fade_to_black": true
+        }
+    ],
+    "transitions": [],
+    "saved_projectors": [],
+    "current_transition": "Fade",
+    "transition_duration": 300,
+    "preview_locked": false,
+    "scaling_enabled": false,
+    "scaling_level": 0,
+    "scaling_off_x": 0.0,
+    "scaling_off_y": 0.0,
+    "virtual-camera": {
+        "type2": 3
+    },
+    "modules": {
+        "scripts-tool": [],
+        "output-timer": {
+            "streamTimerHours": 0,
+            "streamTimerMinutes": 0,
+            "streamTimerSeconds": 30,
+            "recordTimerHours": 0,
+            "recordTimerMinutes": 0,
+            "recordTimerSeconds": 30,
+            "autoStartStreamTimer": false,
+            "autoStartRecordTimer": false,
+            "pauseRecordTimer": true
+        },
+        "auto-scene-switcher": {
+            "interval": 300,
+            "non_matching_scene": "Zoomed out - 4 - houses middle 2",
+            "switch_if_not_matching": false,
+            "active": false,
+            "switches": [
+                {
+                    "scene": "Zoomed out - 4 - houses middle 2",
+                    "window_title": "Windows Input Experience"
+                }
+            ]
+        },
+        "captions": {
+            "source": "",
+            "enabled": false,
+            "lang_id": 1033,
+            "provider": "mssapi"
+        }
+    },
+    "resolution": {
+        "x": 1280,
+        "y": 720
+    },
+    "name": "Untitled"
+}
