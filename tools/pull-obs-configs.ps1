@@ -58,8 +58,7 @@ function Scrub-DirectorySecrets {
 # Map each sheet to its OBS config folder
 $SheetMap = @{
   "sheet-c" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
-  # Add other sheets here:
-  # "sheet-a" = "C:\Users\<User>\AppData\Roaming\obs-studio"
+  "sheet-a" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
 }
 
 if ($List) {
