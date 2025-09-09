@@ -98,7 +98,8 @@ New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
 # Only copy the safe parts (scenes and profiles)
 $ToCopy = @(
   "basic\scenes",
-  "basic\profiles"
+  "basic\profiles",
+  "basic\basic.ini"
 )
 
 # Remove current configs so deletions propagate
