@@ -48,6 +48,24 @@ function Normalize-UrlSlashes {
   } catch { return $Url }
 }
 
+function Replace-Placeholders {
+  param(
+    [Parameter(Mandatory=$true)][string]$Text,
+    [Parameter(Mandatory=$true)][hashtable]$Env
+  )
+  if (-not $Text) { return $Text }
+  $result = $Text
+  if ($Env.ContainsKey('OBS_RTSP_USERNAME') -and $Env['OBS_RTSP_USERNAME']) {
+    $result = [regex]::Replace($result, '(?i)<username>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_USERNAME'] })
+    $result = [regex]::Replace($result, '(?i)<USERNAME>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_USERNAME'] })
+  }
+  if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
+    $result = [regex]::Replace($result, '(?i)<password>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_PASSWORD'] })
+    $result = [regex]::Replace($result, '(?i)<PASSWORD>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_PASSWORD'] })
+  }
+  return $result
+}
+
 function Inject-SceneInputs {
   param(
     [Parameter(Mandatory=$true)][string]$ScenesDir,
@@ -67,12 +85,6 @@ function Inject-SceneInputs {
         $specificKey = "OBS_INPUT_" + $keyBase
         $updated = $false
         $before = [string]$src.settings.input
-        $requiresFallback = ($before -match '<username>' -or $before -match '<password>')
-        $hasSpecific = ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '')
-        $hasFallback = ($Env.ContainsKey('OBS_RTSP_USERNAME') -and $Env['OBS_RTSP_USERNAME'] -and $Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD'])
-        if ($requiresFallback -and (-not $hasSpecific) -and (-not $hasFallback)) {
-          throw ("Credentials required for source '{0}' in {1} but OBS_INPUT_{2} is not set and OBS_RTSP_USERNAME/PASSWORD are missing." -f $sourceName, (Split-Path -Leaf $file.FullName), $keyBase)
-        }
         if ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '') {
           $src.settings.input = Normalize-UrlSlashes -Url $Env[$specificKey]
           $updated = $true
@@ -85,11 +97,13 @@ function Inject-SceneInputs {
           if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
             $inputVal = $inputVal -replace '<password>', $Env['OBS_RTSP_PASSWORD']
           }
+          # Generic placeholder replacement using OBS_SECRET_<TOKEN>
+          $inputVal = Replace-Placeholders -Text $inputVal -Env $Env
           $src.settings.input = Normalize-UrlSlashes -Url $inputVal
         }
-        # If placeholders remain, fail
-        if (([string]$src.settings.input) -match '<username>' -or ([string]$src.settings.input) -match '<password>') {
-          throw ("Unresolved credentials for source '{0}' in {1}. Check env values." -f $sourceName, (Split-Path -Leaf $file.FullName))
+        # If placeholders remain, fail (limited to username/password)
+        if (([string]$src.settings.input) -match '(?i)<\s*username\s*>' -or ([string]$src.settings.input) -match '(?i)<\s*password\s*>') {
+          throw ("Unresolved username/password for source '{0}' in {1}. Check .env values." -f $sourceName, (Split-Path -Leaf $file.FullName))
         }
         $after = [string]$src.settings.input
         if ($after -ne $before) {
@@ -171,9 +185,7 @@ $RepoCfg   = Join-Path $RepoRoot ("obs\" + $Sheet + "\configs")
 if (!(Test-Path $RepoCfg)) { throw "Repo configs not found: $RepoCfg" }
 if (!(Test-Path $ObsDest)) { throw "OBS config not found: $ObsDest" }
 
-$toPush = @(
-  "basic\scenes"
-)
+$toPush = @()
 
 # Preserve existing stream keys in destination
 $destProfiles = Join-Path $ObsDest 'basic\profiles'
@@ -193,8 +205,32 @@ if (-not (Test-Path -LiteralPath $EnvFilePath)) {
 }
 Write-Host ("Using env file: {0}" -f $EnvFilePath)
 $envMap = Load-DotEnvFile -Path $EnvFilePath
-$scenesDir = Join-Path $ObsDest 'basic\scenes'
-Inject-SceneInputs -ScenesDir $scenesDir -Env $envMap
+
+# Prepare scenes in a temporary folder (avoids editing locked files if OBS is open)
+$repoScenes = Join-Path $RepoCfg 'basic\scenes'
+if (-not (Test-Path -LiteralPath $repoScenes)) { throw "Repo scenes not found: $repoScenes" }
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("obs-scenes-" + $Sheet + "-" + ([System.Guid]::NewGuid().ToString()))
+New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+Copy-Item -Path $repoScenes -Destination $tempRoot -Recurse -Force
+
+$tempScenesDir = Join-Path $tempRoot 'scenes'
+if (-not (Test-Path -LiteralPath $tempScenesDir)) { $tempScenesDir = $tempRoot }
+
+Inject-SceneInputs -ScenesDir $tempScenesDir -Env $envMap
+
+# Validate no placeholders remain
+$placeholders = Get-ChildItem -LiteralPath $tempScenesDir -Filter '*.json' -File -Recurse -ErrorAction SilentlyContinue |
+  Select-String -Pattern '<username>|<password>' -SimpleMatch -List
+if ($placeholders) {
+  throw "Credentials placeholders remain after injection. Check .env values."
+}
+
+# Copy prepared scenes to destination
+$destScenesDir = Join-Path $ObsDest 'basic\scenes'
+Copy-Dir-WithoutBak -Source $tempScenesDir -Destination $destScenesDir
+
+# Cleanup temp
+Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 Restore-ServiceJsonKeysFromMap -Map $keysMap
 

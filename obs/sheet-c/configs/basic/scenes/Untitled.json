@@ -49,7 +49,7 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "input": "rtsp://admin:PointCurling2016@192.168.1.41:554/h264Preview_01_main",
+                "input": "rtsp://<username>:<password>@192.168.1.41:554/h264Preview_01_main",
                 "hw_decode": false,
                 "is_local_file": false,
                 "buffering_mb": 12
@@ -163,7 +163,7 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "input": "rtsp://admin:PointCurling2016@192.168.1.40:554/h264Preview_01_main",
+                "input": "rtsp://<username>:<password>@192.168.1.40:554/h264Preview_01_main",
                 "hw_decode": true,
                 "is_local_file": false,
                 "buffering_mb": 12
