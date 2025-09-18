@@ -75,6 +75,7 @@ function Inject-SceneInputs {
     [Parameter(Mandatory=$true)][hashtable]$Env
   )
   if (-not (Test-Path -LiteralPath $ScenesDir)) { return }
+  Write-Host ("Debug: Using creds OBS_RTSP_USERNAME='{0}' OBS_RTSP_PASSWORD='{1}'" -f ($Env['OBS_RTSP_USERNAME']), ($Env['OBS_RTSP_PASSWORD']))
   Get-ChildItem -LiteralPath $ScenesDir -Filter '*.json' -File -ErrorAction SilentlyContinue | ForEach-Object {
     try {
       $file = $_
@@ -88,6 +89,7 @@ function Inject-SceneInputs {
         $specificKey = "OBS_INPUT_" + $keyBase
         $updated = $false
         $before = [string]$src.settings.input
+        Write-Host ("   - {0}: BEFORE => {1}" -f $sourceName, $before)
         if ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '') {
           $src.settings.input = Normalize-UrlSlashes -Url $Env[$specificKey]
           $updated = $true
@@ -111,6 +113,7 @@ function Inject-SceneInputs {
         $after = [string]$src.settings.input
         $b = Mask-UrlSecret -Url $before
         $a = Mask-UrlSecret -Url $after
+        Write-Host ("   - {0}: AFTER  => {1}" -f $sourceName, $after)
         if ($after -ne $before) {
           Write-Host ("   - Updated source '{0}' in {1}`n     {2}`n     -> {3}" -f $sourceName, (Split-Path -Leaf $file.FullName), $b, $a)
         } else {
@@ -228,7 +231,7 @@ Inject-SceneInputs -ScenesDir $tempScenesDir -Env $envMap
 
 # Validate no placeholders remain
 $placeholders = Get-ChildItem -LiteralPath $tempScenesDir -Filter '*.json' -File -Recurse -ErrorAction SilentlyContinue |
-  Select-String -Pattern '<username>|<password>' -SimpleMatch -List
+  Select-String -Pattern '\$\{[A-Za-z_][A-Za-z0-9_]*\}' -List
 if ($placeholders) {
   throw "Credentials placeholders remain after injection. Check .env values."
 }
