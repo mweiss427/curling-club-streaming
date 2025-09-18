@@ -363,7 +363,7 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "input": "rtsp://<username>:<password>@192.168.1.42:554/h264Preview_01_main",
+                "input": "rtsp://${OBS_RTSP_USERNAME}:${OBS_RTSP_PASSWORD}@192.168.1.42:554/h264Preview_01_main",
                 "is_local_file": false,
                 "reconnect_delay_sec": 6,
                 "buffering_mb": 12
@@ -475,7 +475,7 @@
             "id": "ffmpeg_source",
             "versioned_id": "ffmpeg_source",
             "settings": {
-                "input": "rtsp://<username>:<password>@192.168.1.47:554/h264Preview_01_main",
+                "input": "rtsp://${OBS_RTSP_USERNAME}:${OBS_RTSP_PASSWORD}@192.168.1.47:554/h264Preview_01_main",
                 "hw_decode": false,
                 "is_local_file": false,
                 "restart_on_activate": true,
