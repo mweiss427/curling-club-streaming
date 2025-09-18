@@ -56,12 +56,16 @@ function Replace-Placeholders {
   if (-not $Text) { return $Text }
   $result = $Text
   # ${ENV_VAR} style replacements from the loaded .env file
-  $result = [regex]::Replace($result, '\$\{([A-Za-z_][A-Za-z0-9_]*)\}', {
-    param($m)
-    $name = $m.Groups[1].Value
-    if ($Env.ContainsKey($name) -and $Env[$name] -and $Env[$name] -ne '') { return $Env[$name] }
-    return $m.Value
-  })
+  $result = [regex]::Replace(
+    $result,
+    '\$\{([A-Za-z_][A-Za-z0-9_]*)\}',
+    [System.Text.RegularExpressions.MatchEvaluator]{
+      param($m)
+      $name = $m.Groups[1].Value
+      if ($Env.ContainsKey($name) -and $Env[$name] -and $Env[$name] -ne '') { $Env[$name] }
+      else { $m.Value }
+    }
+  )
   return $result
 }
 
