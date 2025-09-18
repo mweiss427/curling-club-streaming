@@ -7,12 +7,98 @@
 
 param(
   [string]$Sheet = "",
-  [switch]$List
+  [switch]$List,
+  [string]$EnvPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 # Helpers
+function Load-DotEnvFile {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  $envMap = @{}
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $envMap }
+  Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) { return }
+    $idx = $line.IndexOf('=')
+    if ($idx -lt 1) { return }
+    $key = $line.Substring(0, $idx).Trim()
+    $val = $line.Substring($idx + 1).Trim().Trim('"')
+    if ($key -ne '') { $envMap[$key] = $val }
+  }
+  return $envMap
+}
+
+function Resolve-EnvFilePath {
+  param(
+    [Parameter(Mandatory=$true)][string]$RepoRoot,
+    [Parameter(Mandatory=$true)][string]$Sheet,
+    [Parameter(Mandatory=$true)][string]$EnvPath
+  )
+  if ($EnvPath -and (Test-Path -LiteralPath $EnvPath)) { return (Resolve-Path -LiteralPath $EnvPath).Path }
+  $candidates = @(
+    (Join-Path $RepoRoot (".env." + $Sheet + ".local")),
+    (Join-Path $RepoRoot ".env.local"),
+    (Join-Path $HOME (".curling-club-streaming\\.env." + $Sheet)),
+    (Join-Path $HOME ".curling-club-streaming\\.env")
+  )
+  foreach ($p in $candidates) { if (Test-Path -LiteralPath $p) { return (Resolve-Path -LiteralPath $p).Path } }
+  return ""
+}
+
+function Mask-UrlSecret {
+  param([string]$Url)
+  if (-not $Url) { return '' }
+  try {
+    return [regex]::Replace($Url, '(?i)://([^:@/]+):([^@/]+)@', '://****:****@')
+  } catch { return $Url }
+}
+
+function Inject-SceneInputs {
+  param(
+    [Parameter(Mandatory=$true)][string]$ScenesDir,
+    [Parameter(Mandatory=$true)][hashtable]$Env
+  )
+  if (-not (Test-Path -LiteralPath $ScenesDir)) { return }
+  Get-ChildItem -LiteralPath $ScenesDir -Filter '*.json' -File -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+      $file = $_
+      $raw = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop
+      $obj = $raw | ConvertFrom-Json -Depth 64 -ErrorAction Stop
+      if ($null -eq $obj.sources) { return }
+      foreach ($src in $obj.sources) {
+        if ($src.id -ne 'ffmpeg_source') { continue }
+        $sourceName = [string]$src.name
+        $keyBase = ($sourceName -replace '[^A-Za-z0-9]', '_').ToUpper()
+        $specificKey = "OBS_INPUT_" + $keyBase
+        $updated = $false
+        $before = [string]$src.settings.input
+        if ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '') {
+          $src.settings.input = $Env[$specificKey]
+          $updated = $true
+        }
+        if (-not $updated -and $src.settings -and $src.settings.input) {
+          $inputVal = [string]$src.settings.input
+          if ($Env.ContainsKey('OBS_RTSP_USERNAME') -and $Env['OBS_RTSP_USERNAME']) {
+            $inputVal = $inputVal -replace '<username>', $Env['OBS_RTSP_USERNAME']
+          }
+          if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
+            $inputVal = $inputVal -replace '<password>', $Env['OBS_RTSP_PASSWORD']
+          }
+          $src.settings.input = $inputVal
+        }
+        $after = [string]$src.settings.input
+        if ($after -ne $before) {
+          $b = Mask-UrlSecret -Url $before
+          $a = Mask-UrlSecret -Url $after
+          Write-Host ("   - Updated source '{0}' in {1}`n     {2}`n     -> {3}" -f $sourceName, (Split-Path -Leaf $file.FullName), $b, $a)
+        }
+      }
+      ($obj | ConvertTo-Json -Depth 64) | Set-Content -LiteralPath $file.FullName -Encoding UTF8
+    } catch { }
+  }
+}
 function Get-ServiceJsonKeysMap {
   param([Parameter(Mandatory=$true)][string]$ProfilesRoot)
   $map = @{}
@@ -96,6 +182,17 @@ foreach ($rel in $toPush) {
   if (Test-Path $src) {
     Copy-Dir-WithoutBak -Source $src -Destination $dst
   }
+}
+
+# Inject secrets into ffmpeg inputs (from .env)
+$envFile = Resolve-EnvFilePath -RepoRoot $RepoRoot -Sheet $Sheet -EnvPath $EnvPath
+if ($envFile -and $envFile -ne '') {
+  Write-Host "🔐 Using env file: $envFile"
+  $envMap = Load-DotEnvFile -Path $envFile
+  $scenesDir = Join-Path $ObsDest 'basic\scenes'
+  Inject-SceneInputs -ScenesDir $scenesDir -Env $envMap
+} else {
+  Write-Host "ℹ️  No env file found. Skipping input injection."
 }
 
 Restore-ServiceJsonKeysFromMap -Map $keysMap
