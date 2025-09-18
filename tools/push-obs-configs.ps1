@@ -48,6 +48,28 @@ function Normalize-UrlSlashes {
   } catch { return $Url }
 }
 
+function Replace-Tokens-InFiles {
+  param(
+    [Parameter(Mandatory=$true)][string]$RootDir,
+    [Parameter(Mandatory=$true)][hashtable]$Vars
+  )
+  Get-ChildItem -LiteralPath $RootDir -Filter '*.json' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+      $raw = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop
+      $orig = $raw
+      if ($Vars.ContainsKey('OBS_RTSP_USERNAME')) {
+        $raw = $raw -replace '\$\{OBS_RTSP_USERNAME\}', [regex]::Escape($Vars['OBS_RTSP_USERNAME']).Replace('\\','\\')
+      }
+      if ($Vars.ContainsKey('OBS_RTSP_PASSWORD')) {
+        $raw = $raw -replace '\$\{OBS_RTSP_PASSWORD\}', [regex]::Escape($Vars['OBS_RTSP_PASSWORD']).Replace('\\','\\')
+      }
+      if ($raw -ne $orig) {
+        $raw | Set-Content -LiteralPath $_.FullName -Encoding UTF8
+      }
+    } catch { }
+  }
+}
+
 function Replace-Placeholders {
   param(
     [Parameter(Mandatory=$true)][string]$Text,
@@ -231,6 +253,9 @@ Copy-Item -Path (Join-Path $repoScenes '*') -Destination $tempRoot -Recurse -For
 $tempScenesDir = $tempRoot
 
 Inject-SceneInputs -ScenesDir $tempScenesDir -Env $envMap
+
+# Final raw token replacement for robustness
+Replace-Tokens-InFiles -RootDir $tempScenesDir -Vars $envMap
 
 # Validate no placeholders remain
 $placeholders = Get-ChildItem -LiteralPath $tempScenesDir -Filter '*.json' -File -Recurse -ErrorAction SilentlyContinue |
