@@ -102,8 +102,11 @@ function Inject-SceneInputs {
           if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
             $inputVal = $inputVal -replace '<password>', $Env['OBS_RTSP_PASSWORD']
           }
-          # Generic placeholder replacement using OBS_SECRET_<TOKEN>
+          # Generic placeholder replacement using ${VAR} from .env
           $inputVal = Replace-Placeholders -Text $inputVal -Env $Env
+          # Extra safety: direct string replaces for our two vars
+          if ($Env.ContainsKey('OBS_RTSP_USERNAME')) { $inputVal = $inputVal.Replace('${OBS_RTSP_USERNAME}', $Env['OBS_RTSP_USERNAME']) }
+          if ($Env.ContainsKey('OBS_RTSP_PASSWORD')) { $inputVal = $inputVal.Replace('${OBS_RTSP_PASSWORD}', $Env['OBS_RTSP_PASSWORD']) }
           $src.settings.input = Normalize-UrlSlashes -Url $inputVal
         }
         # If placeholders remain, fail (${VAR})
