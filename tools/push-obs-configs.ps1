@@ -159,7 +159,11 @@ function Copy-Dir-WithoutBak {
   if (-not (Test-Path -LiteralPath $Source)) { return }
   New-Item -ItemType Directory -Force -Path $Destination | Out-Null
   Get-ChildItem -LiteralPath $Destination -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-  Copy-Item -Path $Source -Destination $Destination -Recurse -Force
+  if ((Test-Path -LiteralPath $Source -PathType Container)) {
+    Copy-Item -Path (Join-Path $Source '*') -Destination $Destination -Recurse -Force -ErrorAction Stop
+  } else {
+    Copy-Item -Path $Source -Destination $Destination -Recurse -Force -ErrorAction Stop
+  }
   Get-ChildItem -LiteralPath $Destination -Recurse -Force -File -Filter '*.bak' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
@@ -216,10 +220,9 @@ $repoScenes = Join-Path $RepoCfg 'basic\scenes'
 if (-not (Test-Path -LiteralPath $repoScenes)) { throw "Repo scenes not found: $repoScenes" }
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("obs-scenes-" + $Sheet + "-" + ([System.Guid]::NewGuid().ToString()))
 New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
-Copy-Item -Path $repoScenes -Destination $tempRoot -Recurse -Force
+Copy-Item -Path (Join-Path $repoScenes '*') -Destination $tempRoot -Recurse -Force
 
-$tempScenesDir = Join-Path $tempRoot 'scenes'
-if (-not (Test-Path -LiteralPath $tempScenesDir)) { $tempScenesDir = $tempRoot }
+$tempScenesDir = $tempRoot
 
 Inject-SceneInputs -ScenesDir $tempScenesDir -Env $envMap
 
@@ -244,6 +247,3 @@ Write-Host "   Source : $RepoCfg"
 Write-Host "   Dest   : $ObsDest"
 Write-Host ""
 Write-Host "Restart OBS if running to pick up profile/scene changes."
-
-
-
