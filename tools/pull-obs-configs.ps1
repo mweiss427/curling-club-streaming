@@ -59,6 +59,8 @@ function Scrub-DirectorySecrets {
 $SheetMap = @{
   "sheet-c" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
   "sheet-a" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
+  "sheet-b" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
+  "sheet-d" = "C:\Users\Matt Weiss\AppData\Roaming\obs-studio"
 }
 
 if ($List) {
@@ -87,7 +89,7 @@ if (-not $Sheet) { throw "Please pass -Sheet <name>. Try -List to see options." 
 if (-not $SheetMap.ContainsKey($Sheet)) { throw "Unknown sheet '$Sheet'. Add it to `$SheetMap." }
 
 # Resolve repo root and target
-$RepoRoot  = (Resolve-Path "$PSScriptRoot\..").Path
+$RepoRoot  = (Resolve-Path "$PSScriptRoot\..\").Path
 $ObsSrc    = $SheetMap[$Sheet]
 $TargetDir = Join-Path $RepoRoot ("obs\" + $Sheet + "\configs")
 
