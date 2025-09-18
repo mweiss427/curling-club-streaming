@@ -55,14 +55,13 @@ function Replace-Placeholders {
   )
   if (-not $Text) { return $Text }
   $result = $Text
-  if ($Env.ContainsKey('OBS_RTSP_USERNAME') -and $Env['OBS_RTSP_USERNAME']) {
-    $result = [regex]::Replace($result, '(?i)<username>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_USERNAME'] })
-    $result = [regex]::Replace($result, '(?i)<USERNAME>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_USERNAME'] })
-  }
-  if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
-    $result = [regex]::Replace($result, '(?i)<password>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_PASSWORD'] })
-    $result = [regex]::Replace($result, '(?i)<PASSWORD>', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $Env['OBS_RTSP_PASSWORD'] })
-  }
+  # ${ENV_VAR} style replacements from the loaded .env file
+  $result = [regex]::Replace($result, '\$\{([A-Za-z_][A-Za-z0-9_]*)\}', {
+    param($m)
+    $name = $m.Groups[1].Value
+    if ($Env.ContainsKey($name) -and $Env[$name] -and $Env[$name] -ne '') { return $Env[$name] }
+    return $m.Value
+  })
   return $result
 }
 
@@ -101,15 +100,17 @@ function Inject-SceneInputs {
           $inputVal = Replace-Placeholders -Text $inputVal -Env $Env
           $src.settings.input = Normalize-UrlSlashes -Url $inputVal
         }
-        # If placeholders remain, fail (limited to username/password)
-        if (([string]$src.settings.input) -match '(?i)<\s*username\s*>' -or ([string]$src.settings.input) -match '(?i)<\s*password\s*>') {
-          throw ("Unresolved username/password for source '{0}' in {1}. Check .env values." -f $sourceName, (Split-Path -Leaf $file.FullName))
+        # If placeholders remain, fail (${VAR})
+        if (([string]$src.settings.input) -match '\$\{[A-Za-z_][A-Za-z0-9_]*\}') {
+          throw ("Unresolved placeholders for source '{0}' in {1}. Check .env values." -f $sourceName, (Split-Path -Leaf $file.FullName))
         }
         $after = [string]$src.settings.input
+        $b = Mask-UrlSecret -Url $before
+        $a = Mask-UrlSecret -Url $after
         if ($after -ne $before) {
-          $b = Mask-UrlSecret -Url $before
-          $a = Mask-UrlSecret -Url $after
           Write-Host ("   - Updated source '{0}' in {1}`n     {2}`n     -> {3}" -f $sourceName, (Split-Path -Leaf $file.FullName), $b, $a)
+        } else {
+          Write-Host ("   - Source '{0}' in {1} unchanged. RTSP: {2}" -f $sourceName, (Split-Path -Leaf $file.FullName), $a)
         }
       }
       ($obj | ConvertTo-Json -Depth 64) | Set-Content -LiteralPath $file.FullName -Encoding UTF8
