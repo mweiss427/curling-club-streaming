@@ -7,11 +7,13 @@
 
 param(
   [string]$Sheet = "",
-  [switch]$List,
-  [string]$EnvPath = ""
+  [switch]$List
 )
 
 $ErrorActionPreference = "Stop"
+
+# Single-use: hardcoded path to .env on the host machine (use forward slashes for Git Bash compatibility)
+$EnvFilePath = "C:/Users/Matt Weiss/src/.env"
 
 # Helpers
 function Load-DotEnvFile {
@@ -30,28 +32,19 @@ function Load-DotEnvFile {
   return $envMap
 }
 
-function Resolve-EnvFilePath {
-  param(
-    [Parameter(Mandatory=$true)][string]$RepoRoot,
-    [Parameter(Mandatory=$true)][string]$Sheet,
-    [Parameter(Mandatory=$true)][string]$EnvPath
-  )
-  if ($EnvPath -and (Test-Path -LiteralPath $EnvPath)) { return (Resolve-Path -LiteralPath $EnvPath).Path }
-  $candidates = @(
-    (Join-Path $RepoRoot (".env." + $Sheet + ".local")),
-    (Join-Path $RepoRoot ".env.local"),
-    (Join-Path $HOME (".curling-club-streaming\\.env." + $Sheet)),
-    (Join-Path $HOME ".curling-club-streaming\\.env")
-  )
-  foreach ($p in $candidates) { if (Test-Path -LiteralPath $p) { return (Resolve-Path -LiteralPath $p).Path } }
-  return ""
-}
-
 function Mask-UrlSecret {
   param([string]$Url)
   if (-not $Url) { return '' }
   try {
     return [regex]::Replace($Url, '(?i)://([^:@/]+):([^@/]+)@', '://****:****@')
+  } catch { return $Url }
+}
+
+function Normalize-UrlSlashes {
+  param([string]$Url)
+  if (-not $Url) { return '' }
+  try {
+    return $Url -replace '\\','/'
   } catch { return $Url }
 }
 
@@ -74,8 +67,14 @@ function Inject-SceneInputs {
         $specificKey = "OBS_INPUT_" + $keyBase
         $updated = $false
         $before = [string]$src.settings.input
+        $requiresFallback = ($before -match '<username>' -or $before -match '<password>')
+        $hasSpecific = ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '')
+        $hasFallback = ($Env.ContainsKey('OBS_RTSP_USERNAME') -and $Env['OBS_RTSP_USERNAME'] -and $Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD'])
+        if ($requiresFallback -and (-not $hasSpecific) -and (-not $hasFallback)) {
+          throw ("Credentials required for source '{0}' in {1} but OBS_INPUT_{2} is not set and OBS_RTSP_USERNAME/PASSWORD are missing." -f $sourceName, (Split-Path -Leaf $file.FullName), $keyBase)
+        }
         if ($Env.ContainsKey($specificKey) -and $Env[$specificKey] -and $Env[$specificKey] -ne '') {
-          $src.settings.input = $Env[$specificKey]
+          $src.settings.input = Normalize-UrlSlashes -Url $Env[$specificKey]
           $updated = $true
         }
         if (-not $updated -and $src.settings -and $src.settings.input) {
@@ -86,7 +85,11 @@ function Inject-SceneInputs {
           if ($Env.ContainsKey('OBS_RTSP_PASSWORD') -and $Env['OBS_RTSP_PASSWORD']) {
             $inputVal = $inputVal -replace '<password>', $Env['OBS_RTSP_PASSWORD']
           }
-          $src.settings.input = $inputVal
+          $src.settings.input = Normalize-UrlSlashes -Url $inputVal
+        }
+        # If placeholders remain, fail
+        if (([string]$src.settings.input) -match '<username>' -or ([string]$src.settings.input) -match '<password>') {
+          throw ("Unresolved credentials for source '{0}' in {1}. Check env values." -f $sourceName, (Split-Path -Leaf $file.FullName))
         }
         $after = [string]$src.settings.input
         if ($after -ne $before) {
@@ -184,20 +187,18 @@ foreach ($rel in $toPush) {
   }
 }
 
-# Inject secrets into ffmpeg inputs (from .env)
-$envFile = Resolve-EnvFilePath -RepoRoot $RepoRoot -Sheet $Sheet -EnvPath $EnvPath
-if ($envFile -and $envFile -ne '') {
-  Write-Host "🔐 Using env file: $envFile"
-  $envMap = Load-DotEnvFile -Path $envFile
-  $scenesDir = Join-Path $ObsDest 'basic\scenes'
-  Inject-SceneInputs -ScenesDir $scenesDir -Env $envMap
-} else {
-  Write-Host "ℹ️  No env file found. Skipping input injection."
+# Inject secrets into ffmpeg inputs (from hardcoded .env)
+if (-not (Test-Path -LiteralPath $EnvFilePath)) {
+  throw ("Env file not found at: {0}. Aborting." -f $EnvFilePath)
 }
+Write-Host ("Using env file: {0}" -f $EnvFilePath)
+$envMap = Load-DotEnvFile -Path $EnvFilePath
+$scenesDir = Join-Path $ObsDest 'basic\scenes'
+Inject-SceneInputs -ScenesDir $scenesDir -Env $envMap
 
 Restore-ServiceJsonKeysFromMap -Map $keysMap
 
-Write-Host "✅ Pushed repo configs to OBS for '$Sheet' (preserved stream keys, skipped basic.ini)"
+Write-Host "Pushed repo configs to OBS for '$Sheet' (preserved stream keys, skipped basic.ini)"
 Write-Host "   Source : $RepoCfg"
 Write-Host "   Dest   : $ObsDest"
 Write-Host ""
