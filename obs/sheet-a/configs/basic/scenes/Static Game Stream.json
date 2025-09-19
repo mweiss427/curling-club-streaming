@@ -50,61 +50,6 @@
                 "custom_size": false,
                 "items": [
                     {
-                        "name": "Center Old (hidden)",
-                        "source_uuid": "272ed2c9-d7d9-424a-a1ca-195fc5b98f08",
-                        "visible": false,
-                        "locked": true,
-                        "rot": 0.0,
-                        "scale_ref": {
-                            "x": 1920.0,
-                            "y": 1080.0
-                        },
-                        "align": 0,
-                        "bounds_type": 2,
-                        "bounds_align": 0,
-                        "bounds_crop": false,
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
-                        "id": 5,
-                        "group_item_backup": false,
-                        "pos": {
-                            "x": 960.0,
-                            "y": 540.0
-                        },
-                        "pos_rel": {
-                            "x": 0.0,
-                            "y": 0.0
-                        },
-                        "scale": {
-                            "x": 0.2393617033958435,
-                            "y": 0.2866241931915283
-                        },
-                        "scale_rel": {
-                            "x": 0.2393617033958435,
-                            "y": 0.2866241931915283
-                        },
-                        "bounds": {
-                            "x": 480.0,
-                            "y": 120.0
-                        },
-                        "bounds_rel": {
-                            "x": 0.8888888955116272,
-                            "y": 0.2222222238779068
-                        },
-                        "scale_filter": "disable",
-                        "blend_method": "default",
-                        "blend_type": "normal",
-                        "show_transition": {
-                            "duration": 0
-                        },
-                        "hide_transition": {
-                            "duration": 0
-                        },
-                        "private_settings": {}
-                    },
-                    {
                         "name": "Near House",
                         "source_uuid": "ce823db5-45bf-429a-9aea-ae3df7f1dd6d",
                         "visible": true,
@@ -115,7 +60,7 @@
                             "y": 1080.0
                         },
                         "align": 5,
-                        "bounds_type": 2,
+                        "bounds_type": 3,
                         "bounds_align": 5,
                         "bounds_crop": false,
                         "crop_left": 0,
@@ -129,8 +74,8 @@
                             "y": 900.0
                         },
                         "pos_rel": {
-                            "x": 0.4444444477558136,
-                            "y": 0.5555555820465088
+                            "x": 0.0,
+                            "y": 0.0
                         },
                         "scale": {
                             "x": 1.0,
@@ -170,7 +115,7 @@
                             "y": 1080.0
                         },
                         "align": 5,
-                        "bounds_type": 2,
+                        "bounds_type": 3,
                         "bounds_align": 5,
                         "bounds_crop": false,
                         "crop_left": 0,
@@ -184,8 +129,8 @@
                             "y": 180.0
                         },
                         "pos_rel": {
-                            "x": -0.4444444477558136,
-                            "y": -0.5555555820465088
+                            "x": 0.0,
+                            "y": 0.0
                         },
                         "scale": {
                             "x": 1.0,
@@ -225,7 +170,7 @@
                             "y": 1080.0
                         },
                         "align": 5,
-                        "bounds_type": 2,
+                        "bounds_type": 3,
                         "bounds_align": 5,
                         "bounds_crop": false,
                         "crop_left": 0,
@@ -280,7 +225,7 @@
                             "y": 1080.0
                         },
                         "align": 5,
-                        "bounds_type": 2,
+                        "bounds_type": 3,
                         "bounds_align": 5,
                         "bounds_crop": false,
                         "crop_left": 0,
@@ -335,7 +280,7 @@
                             "y": 1080.0
                         },
                         "align": 5,
-                        "bounds_type": 2,
+                        "bounds_type": 3,
                         "bounds_align": 5,
                         "bounds_crop": false,
                         "crop_left": 0,
