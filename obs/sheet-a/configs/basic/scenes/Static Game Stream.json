@@ -46,13 +46,13 @@
             "id": "scene",
             "versioned_id": "scene",
             "settings": {
-                "id_counter": 6,
+                "id_counter": 7,
                 "custom_size": false,
                 "items": [
                     {
-                        "name": "Near Wall",
+                        "name": "Center Old (hidden)",
                         "source_uuid": "272ed2c9-d7d9-424a-a1ca-195fc5b98f08",
-                        "visible": true,
+                        "visible": false,
                         "locked": true,
                         "rot": 0.0,
                         "scale_ref": {
@@ -118,10 +118,10 @@
                         "bounds_type": 2,
                         "bounds_align": 8,
                         "bounds_crop": false,
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
+                        "crop_left": 300,
+                        "crop_top": 240,
+                        "crop_right": 300,
+                        "crop_bottom": 240,
                         "id": 4,
                         "group_item_backup": false,
                         "pos": {
@@ -173,10 +173,10 @@
                         "bounds_type": 2,
                         "bounds_align": 4,
                         "bounds_crop": false,
-                        "crop_left": 0,
-                        "crop_top": 0,
-                        "crop_right": 0,
-                        "crop_bottom": 0,
+                        "crop_left": 300,
+                        "crop_top": 240,
+                        "crop_right": 300,
+                        "crop_bottom": 240,
                         "id": 3,
                         "group_item_backup": false,
                         "pos": {
@@ -228,9 +228,9 @@
                         "bounds_type": 2,
                         "bounds_align": 6,
                         "bounds_crop": false,
-                        "crop_left": 0,
+                        "crop_left": 120,
                         "crop_top": 0,
-                        "crop_right": 0,
+                        "crop_right": 120,
                         "crop_bottom": 0,
                         "id": 1,
                         "group_item_backup": false,
@@ -283,9 +283,9 @@
                         "bounds_type": 2,
                         "bounds_align": 5,
                         "bounds_crop": false,
-                        "crop_left": 0,
+                        "crop_left": 120,
                         "crop_top": 0,
-                        "crop_right": 0,
+                        "crop_right": 120,
                         "crop_bottom": 0,
                         "id": 6,
                         "group_item_backup": false,
@@ -312,6 +312,61 @@
                         "bounds_rel": {
                             "x": 1.3333333730697632,
                             "y": 2.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Scoreboard",
+                        "source_uuid": "d738bbbc-e99b-41a9-a169-277fd3ec9791",
+                        "visible": true,
+                        "locked": true,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 2,
+                        "bounds_align": 5,
+                        "bounds_crop": false,
+                        "crop_left": 640,
+                        "crop_top": 360,
+                        "crop_right": 640,
+                        "crop_bottom": 360,
+                        "id": 7,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 960.0,
+                            "y": 540.0
+                        },
+                        "pos_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale": {
+                            "x": 0.4166666567325592,
+                            "y": 0.4166666567325592
+                        },
+                        "scale_rel": {
+                            "x": 0.4166666567325592,
+                            "y": 0.4166666567325592
+                        },
+                        "bounds": {
+                            "x": 800.0,
+                            "y": 450.0
+                        },
+                        "bounds_rel": {
+                            "x": 1.4814814329147339,
+                            "y": 0.8333333134651184
                         },
                         "scale_filter": "disable",
                         "blend_method": "default",
