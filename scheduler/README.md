@@ -31,23 +31,9 @@ Single-calendar mode (useful for local testing or per-OBS PC):
 - All-day events are ignored.
 - This project intentionally has no UI; Google Calendar is the UI.
 
-### Python quick-check (prints "is live" / "is off")
-A simple Python script is provided to check one calendar and print whether there is an in-progress event right now.
+### Auth and .env
+- Place your service account key at `scheduler/streaming.key.json` (ignored by git).
+- Create a `scheduler/.env` with either `CALENDAR_ID=...@group.calendar.google.com` or `SHEET_KEY=A`.
 
-Setup:
-- Python 3.9+
-- `cd scheduler/python`
-- `pip install -r requirements.txt`
-- Ensure Google auth is available (prefer `GOOGLE_APPLICATION_CREDENTIALS` pointing to a service account key JSON that can read the calendar).
-
-Usage (choose one):
-- Resolve from `scheduler/config.json` by sheet key:
-  - `python is_live.py --sheet A --config ../config.json`
-- Provide calendar ID directly:
-  - `python is_live.py --calendar-id your-calendar-id@group.calendar.google.com`
-
-Exit prints:
-- `is live` if now is within any event window
-- `is off` otherwise
-
-
+### Troubleshooting
+- If you see an auth error, confirm the key path and that the calendar is shared with the service account email (Viewer).
