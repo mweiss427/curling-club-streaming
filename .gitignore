@@ -1,0 +1,29 @@
+# macOS
+.DS_Store
+
+# Scheduler (Node)
+/scheduler/node_modules/
+/scheduler/dist/
+
+# Scheduler local config
+/scheduler/config.json
+
+# Env files (only where we expect them)
+/.env
+/.env.local
+/scheduler/.env
+/scheduler/.env.local
+
+# Root-level credentials (keep keys out of git)
+/service-account*.json
+/credentials*.json
+/google-*.json
+/*.key.json
+
+# Scheduler credentials
+/scheduler/streaming.key.json
+/scheduler/*.key.json
+
+# Python cache (helper script)
+/scheduler/python/__pycache__/
+
