@@ -19,12 +19,14 @@ export type UpcomingEvent = {
     start: string;
     end: string;
     summary?: string;
+    description?: string;
 };
 
 export type SingleEvent = {
     start: string;
     end: string;
     summary?: string;
+    description?: string;
     sheet?: SheetKey;
 };
 
@@ -85,7 +87,7 @@ export async function listUpcoming(opts: { days: number; max: number }, deps: Li
             }
             const start = ev.start?.dateTime ?? '';
             const end = ev.end?.dateTime ?? '';
-            results.push({ sheet: sheetKey, start, end, summary: ev.summary ?? undefined });
+            results.push({ sheet: sheetKey, start, end, summary: ev.summary ?? undefined, description: ev.description ?? undefined });
         }
     }
 
@@ -189,7 +191,7 @@ export async function listUpcomingSingle(
         if (ev.start?.date || ev.end?.date) continue;
         const start = ev.start?.dateTime ?? '';
         const end = ev.end?.dateTime ?? '';
-        events.push({ start, end, summary: ev.summary ?? undefined, sheet: resolvedSource.sheetKey });
+        events.push({ start, end, summary: ev.summary ?? undefined, description: ev.description ?? undefined, sheet: resolvedSource.sheetKey });
     }
     return events;
 }
@@ -234,7 +236,7 @@ export async function listCurrentSingle(
         const startDt = new Date(startStr);
         const endDt = new Date(endStr);
         if (startDt <= now && now <= endDt) {
-            events.push({ start: startStr, end: endStr, summary: ev.summary ?? undefined, sheet: resolvedSource.sheetKey });
+            events.push({ start: startStr, end: endStr, summary: ev.summary ?? undefined, description: ev.description ?? undefined, sheet: resolvedSource.sheetKey });
         }
     }
     return events;

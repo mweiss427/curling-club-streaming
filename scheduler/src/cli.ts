@@ -2,6 +2,8 @@ import 'dotenv/config';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey } from './google/list.js';
+import { createBroadcastAndBind } from './youtube/createBroadcast.js';
+import { tick } from './runner/tick.js';
 
 async function main(): Promise<void> {
     const argv = await yargs(hideBin(process.argv))
@@ -19,6 +21,25 @@ async function main(): Promise<void> {
         .command('status-one', 'Show if there is a live event right now for a single calendar (env or flags)', (y) =>
             y.option('calendar-id', { type: 'string' })
                 .option('sheet', { choices: ['A', 'B', 'C', 'D'] as const })
+        )
+        .command('yt-create', 'Create a YouTube broadcast and bind to a stream', (y) =>
+            y.option('title', { type: 'string', demandOption: true })
+                .option('description', { type: 'string' })
+                .option('privacy', { choices: ['public', 'unlisted', 'private'] as const, default: 'public' })
+                .option('stream-id', { type: 'string' })
+                .option('stream-key', { type: 'string' })
+                .option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+        )
+        .command('tick', 'Run one minute-tick pass for a single sheet', (y) =>
+            y.option('calendar-id', { type: 'string' })
+                .option('sheet', { choices: ['A', 'B', 'C', 'D'] as const })
+                .option('privacy', { choices: ['public', 'unlisted', 'private'] as const, default: 'public' })
+                .option('stream-id', { type: 'string' })
+                .option('stream-key', { type: 'string' })
+                .option('credentials', { type: 'string' })
+                .option('obs-exe', { type: 'string' })
+                .option('obs-profile', { type: 'string', default: 'Untitled' })
+                .option('obs-collection', { type: 'string', default: 'Static Game Stream' })
         )
         .demandCommand(1)
         .help()
@@ -97,6 +118,35 @@ async function main(): Promise<void> {
             process.exitCode = 1;
             return;
         }
+    }
+
+    if (cmd === 'yt-create') {
+        const id = await createBroadcastAndBind({
+            title: String(argv.title),
+            description: (argv.description as string | undefined) ?? undefined,
+            privacy: (argv.privacy as any) ?? 'public',
+            streamId: (argv['stream-id'] as string | undefined) ?? undefined,
+            streamKey: (argv['stream-key'] as string | undefined) ?? undefined,
+            credentialsPath: (argv.credentials as string | undefined) ?? undefined
+        });
+        console.log(id);
+        return;
+    }
+
+    if (cmd === 'tick') {
+        const result = await tick({
+            sheet: (argv.sheet as SheetKey | undefined) ?? (process.env.SHEET_KEY as SheetKey | undefined),
+            calendarId: (argv['calendar-id'] as string | undefined) ?? process.env.CALENDAR_ID,
+            privacy: (argv.privacy as any) ?? 'public',
+            streamId: (argv['stream-id'] as string | undefined) ?? undefined,
+            streamKey: (argv['stream-key'] as string | undefined) ?? undefined,
+            credentialsPath: (argv.credentials as string | undefined) ?? undefined,
+            obsExe: (argv['obs-exe'] as string | undefined) ?? undefined,
+            obsProfile: (argv['obs-profile'] as string | undefined) ?? 'Untitled',
+            obsCollection: (argv['obs-collection'] as string | undefined) ?? 'Static Game Stream'
+        });
+        console.log(result);
+        return;
     }
 }
 
