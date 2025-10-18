@@ -138,12 +138,12 @@ async function main(): Promise<void> {
             sheet: (argv.sheet as SheetKey | undefined) ?? (process.env.SHEET_KEY as SheetKey | undefined),
             calendarId: (argv['calendar-id'] as string | undefined) ?? process.env.CALENDAR_ID,
             privacy: (argv.privacy as any) ?? 'public',
-            streamId: (argv['stream-id'] as string | undefined) ?? undefined,
-            streamKey: (argv['stream-key'] as string | undefined) ?? undefined,
-            credentialsPath: (argv.credentials as string | undefined) ?? undefined,
-            obsExe: (argv['obs-exe'] as string | undefined) ?? undefined,
-            obsProfile: (argv['obs-profile'] as string | undefined) ?? 'Untitled',
-            obsCollection: (argv['obs-collection'] as string | undefined) ?? 'Static Game Stream'
+            streamId: (argv['stream-id'] as string | undefined) ?? process.env.YOUTUBE_STREAM_ID,
+            streamKey: (argv['stream-key'] as string | undefined) ?? process.env.YOUTUBE_STREAM_KEY,
+            credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+            obsExe: (argv['obs-exe'] as string | undefined) ?? process.env.OBS_EXE,
+            obsProfile: (argv['obs-profile'] as string | undefined) ?? process.env.OBS_PROFILE ?? 'Untitled',
+            obsCollection: (argv['obs-collection'] as string | undefined) ?? process.env.OBS_COLLECTION ?? 'Static Game Stream'
         });
         console.log(result);
         return;

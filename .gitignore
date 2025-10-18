@@ -23,6 +23,7 @@
 # Scheduler credentials
 /scheduler/streaming.key.json
 /scheduler/*.key.json
+/scheduler/desktop-client.json
 
 # Python cache (helper script)
 /scheduler/python/__pycache__/
