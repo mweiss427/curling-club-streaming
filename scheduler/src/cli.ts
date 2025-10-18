@@ -2,7 +2,7 @@ import 'dotenv/config';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey } from './google/list.js';
-import { createBroadcastAndBind } from './youtube/createBroadcast.js';
+import { createBroadcastAndBind, listLiveStreams } from './youtube/createBroadcast.js';
 import { tick } from './runner/tick.js';
 
 async function main(): Promise<void> {
@@ -29,6 +29,9 @@ async function main(): Promise<void> {
                 .option('stream-id', { type: 'string' })
                 .option('stream-key', { type: 'string' })
                 .option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+        )
+        .command('yt-streams', 'List your YouTube live streams (IDs and stream keys)', (y) =>
+            y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
         )
         .command('tick', 'Run one minute-tick pass for a single sheet', (y) =>
             y.option('calendar-id', { type: 'string' })
@@ -130,6 +133,20 @@ async function main(): Promise<void> {
             credentialsPath: (argv.credentials as string | undefined) ?? undefined
         });
         console.log(id);
+        return;
+    }
+
+    if (cmd === 'yt-streams') {
+        const streams = await listLiveStreams({ credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS });
+        if (streams.length === 0) {
+            console.log('No live streams found. Create one in YouTube Live Control Room.');
+            return;
+        }
+        for (const s of streams) {
+            const key = s.streamName ? `  key=${s.streamName}` : '';
+            const title = s.title ? `  title=${s.title}` : '';
+            console.log(`id=${s.id}${key}${title}`.trim());
+        }
         return;
     }
 

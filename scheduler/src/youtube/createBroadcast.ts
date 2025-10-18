@@ -21,6 +21,7 @@ export async function createBroadcastAndBind(opts: {
     streamKey?: string; // YouTube RTMP streamName
     streamId?: string; // YouTube liveStreams id
     credentialsPath?: string; // OAuth client credentials json
+    scheduledStart?: string; // ISO datetime string
 }): Promise<string> {
     const privacy: Privacy = opts.privacy ?? 'public';
     const auth = await getOAuthClient(opts.credentialsPath);
@@ -33,7 +34,7 @@ export async function createBroadcastAndBind(opts: {
             snippet: {
                 title: opts.title,
                 description: opts.description,
-                scheduledStartTime: new Date().toISOString()
+                scheduledStartTime: opts.scheduledStart ?? new Date().toISOString()
             },
             status: { privacyStatus: privacy },
             contentDetails: {
@@ -74,6 +75,21 @@ export async function createBroadcastAndBind(opts: {
     });
 
     return broadcastId;
+}
+
+export async function listLiveStreams(opts: { credentialsPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
+    const auth = await getOAuthClient(opts.credentialsPath);
+    const youtube = google.youtube('v3');
+    const resp = await youtube.liveStreams.list({
+        auth,
+        part: ['id', 'cdn', 'snippet'],
+        mine: true,
+        maxResults: opts.maxResults ?? 50
+    });
+    const items = resp.data.items ?? [];
+    return items
+        .filter((s) => Boolean(s.id))
+        .map((s) => ({ id: String(s.id), streamName: s.cdn?.ingestionInfo?.streamName ?? undefined, title: s.snippet?.title ?? undefined }));
 }
 
 
