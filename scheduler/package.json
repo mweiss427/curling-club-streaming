@@ -12,7 +12,7 @@
         "list-one": "tsx src/cli.ts list-one",
         "status-one": "tsx src/cli.ts status-one",
         "tick": "tsx src/cli.ts tick",
-        "tick-loop": "powershell -NoProfile -Command \"for(;;){ npm run --silent tick; Start-Sleep -Seconds 30 }\"",
+        "tick-loop": "powershell -NoProfile -Command \"for(;;){ cmd /c 'npm run --silent tick'; Start-Sleep -Seconds 30 }\"",
         "yt-create": "tsx src/cli.ts yt-create",
         "lint": "eslint .",
         "test": "vitest run",
