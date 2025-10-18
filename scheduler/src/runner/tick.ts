@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
@@ -46,7 +47,8 @@ export async function tick(opts: {
 
     // Simple state persistence to ensure one broadcast per event
     type TickState = { eventKey: string; broadcastId: string };
-    const stateDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../.state');
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const stateDir = path.resolve(moduleDir, '../../.state');
     const statePath = path.join(stateDir, 'current.json');
     const readState = (): TickState | undefined => {
         try { return JSON.parse(fs.readFileSync(statePath, 'utf8')) as TickState; } catch { return undefined; }
