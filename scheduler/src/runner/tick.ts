@@ -8,6 +8,20 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
+// Timeout wrapper to prevent infinite hangs
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms: ${operation}`)), timeoutMs);
+    });
+
+    try {
+        return await Promise.race([promise, timeoutPromise]);
+    } catch (error) {
+        console.error(`[ERROR] ${operation} failed:`, error);
+        throw error;
+    }
+}
+
 export async function tick(opts: {
     sheet?: SheetKey;
     calendarId?: string;
@@ -19,6 +33,8 @@ export async function tick(opts: {
     obsCollection?: string;
     credentialsPath?: string;
 }): Promise<'STARTED' | 'ALREADY_LIVE' | 'STOPPED' | 'IDLE'> {
+    console.error(`[DEBUG] Tick started - Sheet: ${opts.sheet}, Calendar: ${opts.calendarId}`);
+
     const privacy = opts.privacy ?? 'public';
     const obsExe =
         opts.obsExe ??
@@ -28,7 +44,20 @@ export async function tick(opts: {
     const profile = opts.obsProfile ?? 'Untitled';
     const collection = opts.obsCollection ?? 'Static Game Stream';
 
-    const [current] = await listCurrentSingle({ sheetKey: opts.sheet, calendarId: opts.calendarId });
+    console.error(`[DEBUG] OBS config - Exe: ${obsExe}, Profile: ${profile}, Collection: ${collection}`);
+
+    console.error(`[DEBUG] Checking for current events...`);
+    const [current] = await withTimeout(
+        listCurrentSingle({ sheetKey: opts.sheet, calendarId: opts.calendarId }),
+        10000, // 10 second timeout for calendar check
+        'Calendar event lookup'
+    );
+
+    if (current) {
+        console.error(`[DEBUG] Found live event: ${current.summary} (${current.start} - ${current.end})`);
+    } else {
+        console.error(`[DEBUG] No live events found`);
+    }
 
     // Helper: is OBS running?
     async function isObsRunning(): Promise<boolean> {
@@ -72,12 +101,16 @@ export async function tick(opts: {
 
     if (!current) {
         // No event — ensure OBS is stopped
+        console.error(`[DEBUG] No live event, checking OBS status...`);
         if (await isObsRunning()) {
+            console.error(`[DEBUG] OBS is running but no event, stopping OBS...`);
             await stopObs();
             clearState();
+            console.error(`[DEBUG] OBS stopped, returning STOPPED`);
             return 'STOPPED';
         }
         clearState();
+        console.error(`[DEBUG] No event and OBS not running, returning IDLE`);
         return 'IDLE';
     }
 
@@ -95,20 +128,31 @@ export async function tick(opts: {
 
     // Ensure a broadcast is ready and bound, but only once per event
     if (!st || st.eventKey !== eventKey) {
-        const broadcastId = await createBroadcastAndBind({
-            title,
-            description,
-            privacy,
-            streamId: opts.streamId,
-            streamKey: opts.streamKey,
-            credentialsPath: opts.credentialsPath,
-            scheduledStart: current.start
-        });
+        console.error(`[DEBUG] Creating new broadcast for event: ${title}`);
+        const broadcastId = await withTimeout(
+            createBroadcastAndBind({
+                title,
+                description,
+                privacy,
+                streamId: opts.streamId,
+                streamKey: opts.streamKey,
+                credentialsPath: opts.credentialsPath,
+                scheduledStart: current.start
+            }),
+            30000, // 30 second timeout for YouTube operations
+            'YouTube broadcast creation'
+        );
+        console.error(`[DEBUG] Broadcast created successfully: ${broadcastId}`);
         writeState({ eventKey, broadcastId });
+    } else {
+        console.error(`[DEBUG] Using existing broadcast for event: ${st.broadcastId}`);
     }
 
     // Start OBS if not already running; the single-instance will reuse
+    console.error(`[DEBUG] Checking if OBS is running...`);
     const running = await isObsRunning();
+    console.error(`[DEBUG] OBS running status: ${running}`);
+
     const args = [
         '--profile', profile,
         '--collection', collection,
@@ -118,12 +162,24 @@ export async function tick(opts: {
         '--disable-gpu'
     ];
     const obsCwd = path.dirname(obsExe);
+
     if (!running) {
-        await execFileAsync(obsExe, args, { cwd: obsCwd });
+        console.error(`[DEBUG] Starting OBS with args: ${args.join(' ')}`);
+        await withTimeout(
+            execFileAsync(obsExe, args, { cwd: obsCwd }),
+            15000, // 15 second timeout for OBS startup
+            'OBS startup'
+        );
+        console.error(`[DEBUG] OBS started successfully`);
         return 'STARTED';
     } else {
-        // Nudge startstreaming; OBS will ignore if already streaming
-        await execFileAsync(obsExe, ['--startstreaming'], { cwd: obsCwd });
+        console.error(`[DEBUG] OBS already running, nudging startstreaming...`);
+        await withTimeout(
+            execFileAsync(obsExe, ['--startstreaming'], { cwd: obsCwd }),
+            5000, // 5 second timeout for OBS command
+            'OBS startstreaming command'
+        );
+        console.error(`[DEBUG] OBS startstreaming command sent`);
         return 'ALREADY_LIVE';
     }
 }
