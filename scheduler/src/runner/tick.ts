@@ -42,7 +42,18 @@ export async function tick(opts: {
 
     // Helper: stop OBS gracefully
     async function stopObs(): Promise<void> {
-        await execFileAsync('powershell', ['-NoProfile', '-Command', "$p=Get-Process obs64 -ErrorAction SilentlyContinue; if($p){ if($p.MainWindowHandle -ne 0){$null=$p.CloseMainWindow(); Start-Sleep -Seconds 5}; if(!$p.HasExited){ Stop-Process -Id $p.Id -Force } }"]);
+        await execFileAsync('powershell', ['-NoProfile', '-Command',
+            "$p=Get-Process obs64 -ErrorAction SilentlyContinue; " +
+            "if($p){ " +
+            "  if($p.MainWindowHandle -ne 0){ " +
+            "    $null=$p.CloseMainWindow(); " +
+            "    Start-Sleep -Seconds 10; " +
+            "  }; " +
+            "  if(!$p.HasExited){ " +
+            "    Stop-Process -Id $p.Id -Force " +
+            "  } " +
+            "}"
+        ]);
     }
 
     // Simple state persistence to ensure one broadcast per event
@@ -98,7 +109,14 @@ export async function tick(opts: {
 
     // Start OBS if not already running; the single-instance will reuse
     const running = await isObsRunning();
-    const args = ['--profile', profile, '--collection', collection, '--startstreaming'];
+    const args = [
+        '--profile', profile,
+        '--collection', collection,
+        '--startstreaming',
+        '--disable-auto-updater',
+        '--disable-shutdown-check',
+        '--disable-gpu'
+    ];
     const obsCwd = path.dirname(obsExe);
     if (!running) {
         await execFileAsync(obsExe, args, { cwd: obsCwd });
