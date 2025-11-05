@@ -22,6 +22,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation:
     }
 }
 
+// Simple sleep helper for polling loops
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function tick(opts: {
     sheet?: SheetKey;
     calendarId?: string;
@@ -77,7 +80,7 @@ export async function tick(opts: {
             "if($p){ " +
             "  if($p.MainWindowHandle -ne 0){ " +
             "    $null=$p.CloseMainWindow(); " +
-            "    Start-Sleep -Seconds 10; " +
+            "    Start-Sleep -Seconds 20; " +
             "  }; " +
             "  if(!$p.HasExited){ " +
             "    Stop-Process -Id $p.Id -Force " +
@@ -160,19 +163,29 @@ export async function tick(opts: {
         '--collection', collection,
         '--startstreaming',
         '--disable-auto-updater',
-        '--disable-shutdown-check',
-        '--disable-gpu'
+        '--disable-shutdown-check'
     ];
     const obsCwd = path.dirname(obsExe);
 
     if (!running) {
-        console.error(`[DEBUG] Starting OBS with args: ${args.join(' ')}`);
+        console.error(`[DEBUG] Starting OBS (detached) with args: ${args.join(' ')}`);
+        // Launch OBS detached via PowerShell to avoid blocking on first-run dialogs/crash recovery
         await withTimeout(
-            execFileAsync(obsExe, args, { cwd: obsCwd }),
-            15000, // 15 second timeout for OBS startup
-            'OBS startup'
+            execFileAsync('powershell', [
+                '-NoProfile',
+                '-Command',
+                `Start-Process -FilePath '${obsExe}' -ArgumentList '${args.join(' ')}' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
+            ]),
+            5000, // quick launch
+            'OBS launch'
         );
-        console.error(`[DEBUG] OBS started successfully`);
+
+        // Poll up to ~60 seconds for OBS to appear
+        for (let i = 0; i < 20; i++) {
+            if (await isObsRunning()) break;
+            await sleep(3000);
+        }
+        console.error(`[DEBUG] OBS started (detached)`);
         return 'STARTED';
     } else {
         console.error(`[DEBUG] OBS already running, nudging startstreaming...`);
