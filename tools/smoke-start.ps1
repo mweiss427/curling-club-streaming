@@ -39,7 +39,7 @@ $ytProc = Start-Process -FilePath 'npm' -ArgumentList $ytArgs -WorkingDirectory 
 if ($ytProc.ExitCode -ne 0) { throw "Failed to create/bind YouTube broadcast (exit $($ytProc.ExitCode))." }
 
 Write-Host "Launching OBS with profile '$obsProfile' and collection '$obsCollection'..."
-$obsArgs = @('--profile', $obsProfile, '--collection', $obsCollection, '--startstreaming')
+$obsArgs = @('--profile', $obsProfile, '--collection', $obsCollection, '--startstreaming', '--disable-shutdown-check')
 Start-Process -FilePath $obsExe -ArgumentList $obsArgs | Out-Null
 Write-Host 'Smoke start issued. If OBS was already running, it will reuse the same instance.'
 

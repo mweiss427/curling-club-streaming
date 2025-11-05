@@ -16,7 +16,7 @@ $profileName = 'Untitled'
 $collectionName = 'Static Game Stream'
 
 Write-Host "Launching OBS with profile '$profileName' and collection '$collectionName'..."
-Start-Process -FilePath $obsExe -ArgumentList @('--profile', $profileName, '--collection', $collectionName, '--startstreaming')
+Start-Process -FilePath $obsExe -ArgumentList @('--profile', $profileName, '--collection', $collectionName, '--startstreaming', '--disable-shutdown-check')
 
 Write-Host 'OBS launch command issued. If OBS was already running, it will reuse the same instance.'
 

@@ -10,22 +10,34 @@ if (-not $process) {
 }
 
 if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
-  # Try a graceful close first
-  $closed = $process.CloseMainWindow()
-  if (-not $closed) {
-    Write-Host 'CloseMainWindow returned false; proceeding to wait/terminate.'
-  }
-  if (-not ($process | Wait-Process -Timeout 20 -ErrorAction SilentlyContinue)) {
-    Write-Host 'OBS did not exit gracefully in time; sending Stop-Process -Force.'
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+  Write-Host 'Requesting graceful close via CloseMainWindow...'
+  $null = $process.CloseMainWindow()
+  try {
+    Wait-Process -Id $process.Id -Timeout 60
+  } catch {
+    # timed out waiting
   }
 } else {
-  # No window (background or minimized to tray); attempt normal stop, then force.
+  # No main window (e.g., minimized to tray). Try a normal Stop-Process (no -Force) first, then wait.
+  Write-Host 'No main window; attempting normal Stop-Process (no -Force)...'
   try {
     Stop-Process -Id $process.Id -ErrorAction Stop
   } catch {
-    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    # may already be exiting or gone
   }
+  try {
+    Wait-Process -Id $process.Id -Timeout 60
+  } catch {
+    # timed out waiting
+  }
+}
+
+# If still running after graceful attempts, use -Force as a last resort
+if (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) {
+  Write-Host 'OBS did not exit cleanly in time; sending Stop-Process -Force (last resort).'
+  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+} else {
+  Write-Host 'OBS exited cleanly.'
 }
 
 Write-Host 'OBS stop command completed.'
