@@ -51,10 +51,10 @@ Additional environment variables (optional but recommended for hands-free operat
 #### Example .env (Windows)
 
 ```ini
-# Calendar selection (choose ONE)
-# CALENDAR_ID=your-calendar@group.calendar.google.com
-# or, if using config.json sheets mapping
-SHEET_KEY=A
+# Calendar selection (choose ONE; do not set both)
+CALENDAR_ID=your-calendar@group.calendar.google.com
+# or, if using config.json sheets mapping (leave CALENDAR_ID unset)
+# SHEET_KEY=A
 
 # OBS connection (Windows)
 OBS_EXE=C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe
@@ -68,7 +68,7 @@ YOUTUBE_STREAM_KEY=stream-name-from-ingestion-settings
 # YouTube OAuth client credentials (for creating broadcasts)
 YOUTUBE_OAUTH_CREDENTIALS=C:\\path\\to\\youtube.credentials.json
 
-# Saved OAuth token (created by yt-auth-init). Keep this private.
+# Saved OAuth token (created by yt-auth-init). Required for automation. Keep this private.
 YOUTUBE_TOKEN_PATH=C:\\path\\to\\youtube.token.json
 
 # Google Calendar service account credentials (read-only)
@@ -95,6 +95,7 @@ npm run yt-auth-status -- --credentials "%YOUTUBE_OAUTH_CREDENTIALS%" --token "%
 Notes:
 - 2FA is required only during this initial consent. Afterward, the stored refresh token allows headless operation.
 - The token is tied to the Google account and OAuth client, not the machine. Protect both files with NTFS permissions.
+- Use `npm run yt-streams` to list your Live Streams; if you copy the RTMP key, use `YOUTUBE_STREAM_KEY`. If you copy the stream id, use `YOUTUBE_STREAM_ID`.
 
 ### Running the scheduler continuously (Windows)
 
