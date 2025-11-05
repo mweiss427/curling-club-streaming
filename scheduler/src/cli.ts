@@ -3,6 +3,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey } from './google/list.js';
 import { createBroadcastAndBind, listLiveStreams } from './youtube/createBroadcast.js';
+import { initAuth, getAuthStatus } from './youtube/auth.js';
 import { tick } from './runner/tick.js';
 
 async function main(): Promise<void> {
@@ -29,9 +30,19 @@ async function main(): Promise<void> {
                 .option('stream-id', { type: 'string' })
                 .option('stream-key', { type: 'string' })
                 .option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+                .option('token', { type: 'string', describe: 'Path to OAuth token JSON (refresh token)' })
         )
         .command('yt-streams', 'List your YouTube live streams (IDs and stream keys)', (y) =>
             y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+                .option('token', { type: 'string', describe: 'Path to OAuth token JSON (refresh token)' })
+        )
+        .command('yt-auth-init', 'Run interactive OAuth consent and save token for headless use', (y) =>
+            y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+                .option('token', { type: 'string', describe: 'Path to save OAuth token JSON' })
+        )
+        .command('yt-auth-status', 'Show current OAuth token status and YouTube channel info', (y) =>
+            y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
+                .option('token', { type: 'string', describe: 'Path to OAuth token JSON' })
         )
         .command('tick', 'Run one minute-tick pass for a single sheet', (y) =>
             y.option('calendar-id', { type: 'string' })
@@ -40,6 +51,7 @@ async function main(): Promise<void> {
                 .option('stream-id', { type: 'string' })
                 .option('stream-key', { type: 'string' })
                 .option('credentials', { type: 'string' })
+                .option('token', { type: 'string', describe: 'Path to OAuth token JSON' })
                 .option('obs-exe', { type: 'string' })
                 .option('obs-profile', { type: 'string', default: 'Untitled' })
                 .option('obs-collection', { type: 'string', default: 'Static Game Stream' })
@@ -130,14 +142,18 @@ async function main(): Promise<void> {
             privacy: (argv.privacy as any) ?? 'public',
             streamId: (argv['stream-id'] as string | undefined) ?? undefined,
             streamKey: (argv['stream-key'] as string | undefined) ?? undefined,
-            credentialsPath: (argv.credentials as string | undefined) ?? undefined
+            credentialsPath: (argv.credentials as string | undefined) ?? undefined,
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
         });
         console.log(id);
         return;
     }
 
     if (cmd === 'yt-streams') {
-        const streams = await listLiveStreams({ credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS });
+        const streams = await listLiveStreams({
+            credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
+        });
         if (streams.length === 0) {
             console.log('No live streams found. Create one in YouTube Live Control Room.');
             return;
@@ -150,6 +166,30 @@ async function main(): Promise<void> {
         return;
     }
 
+    if (cmd === 'yt-auth-init') {
+        const tokenPath = await initAuth({
+            clientPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
+        });
+        console.log(`Token saved: ${tokenPath}`);
+        return;
+    }
+
+    if (cmd === 'yt-auth-status') {
+        const status = await getAuthStatus({
+            clientPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
+        });
+        if (!status.hasToken) {
+            console.log(`No token at ${status.tokenPath}`);
+            return;
+        }
+        const exp = status.expiry ? ` expires ${status.expiry}` : '';
+        const ch = status.channelTitle ? ` channel=${status.channelTitle} (${status.channelId ?? ''})` : '';
+        console.log(`Token OK at ${status.tokenPath}${exp}${ch}`.trim());
+        return;
+    }
+
     if (cmd === 'tick') {
         const result = await tick({
             sheet: (argv.sheet as SheetKey | undefined) ?? (process.env.SHEET_KEY as SheetKey | undefined),
@@ -158,6 +198,7 @@ async function main(): Promise<void> {
             streamId: (argv['stream-id'] as string | undefined) ?? process.env.YOUTUBE_STREAM_ID,
             streamKey: (argv['stream-key'] as string | undefined) ?? process.env.YOUTUBE_STREAM_KEY,
             credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH,
             obsExe: (argv['obs-exe'] as string | undefined) ?? process.env.OBS_EXE,
             obsProfile: (argv['obs-profile'] as string | undefined) ?? process.env.OBS_PROFILE ?? 'Untitled',
             obsCollection: (argv['obs-collection'] as string | undefined) ?? process.env.OBS_COLLECTION ?? 'Static Game Stream'

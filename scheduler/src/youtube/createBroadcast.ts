@@ -1,18 +1,8 @@
 import { google } from 'googleapis';
 import path from 'node:path';
-import { authenticate } from '@google-cloud/local-auth';
-
-const SCOPES = [
-    'https://www.googleapis.com/auth/youtube',
-    'https://www.googleapis.com/auth/youtube.force-ssl'
-];
+import { getOAuthClient as getOAuthClientWithToken } from './auth.js';
 
 export type Privacy = 'public' | 'unlisted' | 'private';
-
-async function getOAuthClient(keyfilePath?: string) {
-    const keyPath = keyfilePath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
-    return authenticate({ scopes: SCOPES, keyfilePath: keyPath });
-}
 
 export async function createBroadcastAndBind(opts: {
     title: string;
@@ -21,6 +11,7 @@ export async function createBroadcastAndBind(opts: {
     streamKey?: string; // YouTube RTMP streamName
     streamId?: string; // YouTube liveStreams id
     credentialsPath?: string; // OAuth client credentials json
+    tokenPath?: string; // Stored OAuth refresh/access token json
     scheduledStart?: string; // ISO datetime string
 }): Promise<string> {
     console.error(`[DEBUG] Starting YouTube broadcast creation for: ${opts.title}`);
@@ -28,7 +19,9 @@ export async function createBroadcastAndBind(opts: {
     const privacy: Privacy = opts.privacy ?? 'public';
 
     console.error(`[DEBUG] Getting OAuth client...`);
-    const auth = await getOAuthClient(opts.credentialsPath);
+    const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+    const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+    const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath });
     console.error(`[DEBUG] OAuth client obtained`);
 
     const youtube = google.youtube('v3');
@@ -90,8 +83,10 @@ export async function createBroadcastAndBind(opts: {
     return broadcastId;
 }
 
-export async function listLiveStreams(opts: { credentialsPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
-    const auth = await getOAuthClient(opts.credentialsPath);
+export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
+    const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+    const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+    const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath });
     const youtube = google.youtube('v3');
     const resp = await youtube.liveStreams.list({
         auth,

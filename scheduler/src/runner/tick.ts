@@ -32,6 +32,7 @@ export async function tick(opts: {
     obsProfile?: string;
     obsCollection?: string;
     credentialsPath?: string;
+    tokenPath?: string;
 }): Promise<'STARTED' | 'ALREADY_LIVE' | 'STOPPED' | 'IDLE'> {
     console.error(`[DEBUG] Tick started - Sheet: ${opts.sheet}, Calendar: ${opts.calendarId}`);
 
@@ -137,6 +138,7 @@ export async function tick(opts: {
                 streamId: opts.streamId,
                 streamKey: opts.streamKey,
                 credentialsPath: opts.credentialsPath,
+                tokenPath: opts.tokenPath,
                 scheduledStart: current.start
             }),
             30000, // 30 second timeout for YouTube operations
