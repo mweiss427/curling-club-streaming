@@ -73,20 +73,12 @@ export async function tick(opts: {
         }
     }
 
-    // Helper: stop OBS gracefully
+    // Helper: stop OBS gracefully using the shared PowerShell script
     async function stopObs(): Promise<void> {
-        await execFileAsync('powershell', ['-NoProfile', '-Command',
-            "$p=Get-Process obs64 -ErrorAction SilentlyContinue; " +
-            "if($p){ " +
-            "  if($p.MainWindowHandle -ne 0){ " +
-            "    $null=$p.CloseMainWindow(); " +
-            "    Start-Sleep -Seconds 20; " +
-            "  }; " +
-            "  if(!$p.HasExited){ " +
-            "    Stop-Process -Id $p.Id -Force " +
-            "  } " +
-            "}"
-        ]);
+        const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+        const repoRoot = path.resolve(moduleDir, '../../..');
+        const stopScript = path.join(repoRoot, 'tools', 'stop-obs.ps1');
+        await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', stopScript]);
     }
 
     // Simple state persistence to ensure one broadcast per event
