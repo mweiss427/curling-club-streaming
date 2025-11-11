@@ -172,6 +172,16 @@ export async function tick(opts: {
             'OBS launch'
         );
 
+        // Fire-and-forget: helper to dismiss crash/safe-mode dialog if it appears
+        try {
+            const repoRoot = path.resolve(moduleDir, '../../..');
+            const dismissScript = path.join(repoRoot, 'tools', 'dismiss-obs-safemode.ps1');
+            const psArg = `Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${dismissScript.replace(/'/g, \"''\")}'`;
+            await execFileAsync('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', psArg]);
+        } catch (e) {
+            console.error('[WARN] Failed to start safe-mode dismissal helper:', e);
+        }
+
         // Poll up to ~60 seconds for OBS to appear
         for (let i = 0; i < 20; i++) {
             if (await isObsRunning()) break;
@@ -182,8 +192,12 @@ export async function tick(opts: {
     } else {
         console.error(`[DEBUG] OBS already running, nudging startstreaming...`);
         await withTimeout(
-            execFileAsync(obsExe, ['--startstreaming'], { cwd: obsCwd }),
-            5000, // 5 second timeout for OBS command
+            execFileAsync('powershell', [
+                '-NoProfile',
+                '-Command',
+                `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
+            ]),
+            5000, // 5 second timeout for OBS command trigger (non-blocking)
             'OBS startstreaming command'
         );
         console.error(`[DEBUG] OBS startstreaming command sent`);

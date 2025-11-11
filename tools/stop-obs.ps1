@@ -21,20 +21,56 @@ function Invoke-ObsCli {
   & npx --yes --prefix (Join-Path $repoRoot 'scheduler') obs-cli @Args
 }
 
-if ($wsPass) {
+function Try-Stop {
+  param([string]$cmd)
   try {
-    Write-Host 'Stopping outputs via obs-websocket...'
-    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopStream') | Out-Null
-    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopRecord') | Out-Null
-    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopVirtualCam') | Out-Null
-    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopReplayBuffer') | Out-Null
-    Start-Sleep -Seconds 2
-    Write-Host 'Requesting OBS Quit via obs-websocket...'
-    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'Quit') | Out-Null
-    Start-Sleep -Seconds 2
-  } catch {
-    Write-Host 'obs-websocket step failed; falling back to window-close.'
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, $cmd) | Out-Null
+  } catch { }
+}
+
+function Wait-Until {
+  param(
+    [scriptblock]$check,
+    [int]$timeoutSec = 15,
+    [int]$sleepMs = 300
+  )
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  while ((Get-Date) -lt $deadline) {
+    if (& $check) { return $true }
+    Start-Sleep -Milliseconds $sleepMs
   }
+  return $false
+}
+
+function IsInactive {
+  param([string]$what)
+  try {
+    switch ($what) {
+      'stream'       { $out = Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'GetStreamStatus', '--json');       return ($out -notmatch '\"outputActive\"\\s*:\\s*true') }
+      'record'       { $out = Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'GetRecordStatus', '--json');       return ($out -notmatch '\"outputActive\"\\s*:\\s*true') }
+      'virtualcam'   { $out = Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'GetVirtualCamStatus', '--json');   return ($out -notmatch '\"outputActive\"\\s*:\\s*true') }
+      'replaybuffer' { $out = Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'GetReplayBufferStatus', '--json'); return ($out -notmatch '\"outputActive\"\\s*:\\s*true') }
+    }
+  } catch { }
+  return $true
+}
+
+if ($wsPass) {
+  Write-Host 'Stopping outputs via obs-websocket...'
+  Try-Stop 'StopStream'
+  Try-Stop 'StopRecord'
+  Try-Stop 'StopVirtualCam'
+  Try-Stop 'StopReplayBuffer'
+
+  # Wait (best-effort) for outputs to report inactive
+  $null = Wait-Until { IsInactive 'stream' } -timeoutSec 15
+  $null = Wait-Until { IsInactive 'record' } -timeoutSec 15
+  $null = Wait-Until { IsInactive 'virtualcam' } -timeoutSec 10
+  $null = Wait-Until { IsInactive 'replaybuffer' } -timeoutSec 10
+
+  Write-Host 'Requesting OBS Quit via obs-websocket...'
+  Try-Stop 'Quit'
+  Start-Sleep -Seconds 2
 }
 
 $process = Get-Process -Name 'obs64' -ErrorAction SilentlyContinue
@@ -47,7 +83,7 @@ if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
   Write-Host 'Requesting graceful close via CloseMainWindow...'
   $null = $process.CloseMainWindow()
   try {
-    Wait-Process -Id $process.Id -Timeout 60
+    Wait-Process -Id $process.Id -Timeout 90
   } catch {
     # timed out waiting
   }
@@ -60,7 +96,7 @@ if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
     # may already be exiting or gone
   }
   try {
-    Wait-Process -Id $process.Id -Timeout 60
+    Wait-Process -Id $process.Id -Timeout 90
   } catch {
     # timed out waiting
   }
