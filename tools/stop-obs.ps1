@@ -11,12 +11,14 @@ $wsPass = $env:OBS_WEBSOCKET_PASSWORD
 
 function Invoke-ObsCli {
   param([string[]]$Args)
+  $repoRoot = Split-Path -Parent $PSScriptRoot
   $obsCli = (Get-Command obs-cli -ErrorAction SilentlyContinue)
   if ($obsCli) {
     & $obsCli.Source @Args
-  } else {
-    & npx --yes obs-cli @Args
+    return
   }
+  # Prefer local devDependency under scheduler via npx --prefix (offline-friendly)
+  & npx --yes --prefix (Join-Path $repoRoot 'scheduler') obs-cli @Args
 }
 
 if ($wsPass) {
