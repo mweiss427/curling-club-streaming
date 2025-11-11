@@ -1,7 +1,36 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Gracefully close OBS on Windows. Falls back to Kill if needed.
+# Gracefully close OBS on Windows. Tries obs-websocket StopStream + Quit first,
+# then falls back to window-close. Uses -Force only as a last resort.
+
+# Hardcoded obs-websocket endpoint; password comes from environment
+$wsHost = '127.0.0.1'
+$wsPort = 4455
+$wsPass = $env:OBS_WEBSOCKET_PASSWORD
+
+function Invoke-ObsCli {
+  param([string[]]$Args)
+  $obsCli = (Get-Command obs-cli -ErrorAction SilentlyContinue)
+  if ($obsCli) {
+    & $obsCli.Source @Args
+  } else {
+    & npx --yes obs-cli @Args
+  }
+}
+
+if ($wsPass) {
+  try {
+    Write-Host 'Stopping stream via obs-websocket...'
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopStream') | Out-Null
+    Start-Sleep -Seconds 2
+    Write-Host 'Requesting OBS Quit via obs-websocket...'
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'Quit') | Out-Null
+    Start-Sleep -Seconds 2
+  } catch {
+    Write-Host 'obs-websocket step failed; falling back to window-close.'
+  }
+}
 
 $process = Get-Process -Name 'obs64' -ErrorAction SilentlyContinue
 if (-not $process) {
