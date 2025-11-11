@@ -21,8 +21,11 @@ function Invoke-ObsCli {
 
 if ($wsPass) {
   try {
-    Write-Host 'Stopping stream via obs-websocket...'
+    Write-Host 'Stopping outputs via obs-websocket...'
     Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopStream') | Out-Null
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopRecord') | Out-Null
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopVirtualCam') | Out-Null
+    Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'StopReplayBuffer') | Out-Null
     Start-Sleep -Seconds 2
     Write-Host 'Requesting OBS Quit via obs-websocket...'
     Invoke-ObsCli -Args @('--host', $wsHost, '--port', "$wsPort", '--password', $wsPass, 'Quit') | Out-Null
