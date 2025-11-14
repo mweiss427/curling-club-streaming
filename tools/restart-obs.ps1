@@ -41,7 +41,7 @@ if (Test-Path -LiteralPath $stopScript) {
 }
 
 # 2) Confirm process is gone
-$stopped = Wait-UntilFalse -check { IsObsRunning } -timeoutSec  ninety
+$stopped = Wait-UntilFalse -check { IsObsRunning } -timeoutSec 90
 if (-not $stopped) { Write-Host 'OBS did not stop in time; proceeding to restart anyway.' }
 
 # 3) Start OBS
