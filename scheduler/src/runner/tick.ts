@@ -191,17 +191,53 @@ export async function tick(opts: {
         console.error(`[DEBUG] OBS started (detached)`);
         return 'STARTED';
     } else {
-        console.error(`[DEBUG] OBS already running, nudging startstreaming...`);
-        await withTimeout(
-            execFileAsync('powershell', [
-                '-NoProfile',
-                '-Command',
-                `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
-            ]),
-            5000, // 5 second timeout for OBS command trigger (non-blocking)
-            'OBS startstreaming command'
-        );
-        console.error(`[DEBUG] OBS startstreaming command sent`);
+        console.error(`[DEBUG] OBS already running, using obs-websocket to start streaming...`);
+        // Use obs-websocket instead of launching OBS again (which causes "already running" dialog)
+        const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
+        if (wsPass) {
+            try {
+                const repoRoot = path.resolve(moduleDir, '../../..');
+                const schedulerDir = path.join(repoRoot, 'scheduler');
+                await withTimeout(
+                    execFileAsync('npx', [
+                        '--yes',
+                        '--prefix', schedulerDir,
+                        'obs-cli',
+                        '--host', '127.0.0.1',
+                        '--port', '4455',
+                        '--password', wsPass,
+                        'StartStream'
+                    ]),
+                    5000,
+                    'OBS websocket StartStream'
+                );
+                console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
+            } catch (e) {
+                console.error(`[WARN] Failed to start stream via websocket, falling back to launch method:`, e);
+                // Fallback: try launch method (may show dialog, but better than nothing)
+                await withTimeout(
+                    execFileAsync('powershell', [
+                        '-NoProfile',
+                        '-Command',
+                        `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
+                    ]),
+                    5000,
+                    'OBS startstreaming command (fallback)'
+                );
+            }
+        } else {
+            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot use websocket. Launching OBS may show "already running" dialog.`);
+            // Fallback: try launch method (will show dialog)
+            await withTimeout(
+                execFileAsync('powershell', [
+                    '-NoProfile',
+                    '-Command',
+                    `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
+                ]),
+                5000,
+                'OBS startstreaming command (fallback)'
+            );
+        }
         return 'ALREADY_LIVE';
     }
 }
