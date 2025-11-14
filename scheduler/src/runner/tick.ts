@@ -176,7 +176,8 @@ export async function tick(opts: {
         try {
             const repoRoot = path.resolve(moduleDir, '../../..');
             const dismissScript = path.join(repoRoot, 'tools', 'dismiss-obs-safemode.ps1');
-            const psArg = `Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${dismissScript.replace(/'/g, \"''\")}'`;
+            const escapedPath = dismissScript.replace(/'/g, "''");
+            const psArg = `Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escapedPath}'`;
             await execFileAsync('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', psArg]);
         } catch (e) {
             console.error('[WARN] Failed to start safe-mode dismissal helper:', e);
