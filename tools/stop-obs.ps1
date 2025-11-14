@@ -63,7 +63,8 @@ if ($wsPass) {
   Try-Stop 'StopReplayBuffer'
 
   # Wait (best-effort) for outputs to report inactive
-  $null = Wait-Until { IsInactive 'stream' } -timeoutSec 15
+  $streamStopped = Wait-Until { IsInactive 'stream' } -timeoutSec 15
+  if ($streamStopped) { Write-Host 'Stream confirmed stopped.' } else { Write-Host 'Stream stop timeout (may still be active).' }
   $null = Wait-Until { IsInactive 'record' } -timeoutSec 15
   $null = Wait-Until { IsInactive 'virtualcam' } -timeoutSec 10
   $null = Wait-Until { IsInactive 'replaybuffer' } -timeoutSec 10
@@ -71,6 +72,8 @@ if ($wsPass) {
   Write-Host 'Requesting OBS Quit via obs-websocket...'
   Try-Stop 'Quit'
   Start-Sleep -Seconds 2
+} else {
+  Write-Host 'WARNING: OBS_WEBSOCKET_PASSWORD not set. Cannot stop stream via websocket. CloseMainWindow may show "Exit OBS?" dialog.'
 }
 
 $process = Get-Process -Name 'obs64' -ErrorAction SilentlyContinue
@@ -80,6 +83,13 @@ if (-not $process) {
 }
 
 if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+  # Launch helper to auto-dismiss "Exit OBS?" dialog if it appears (safety net)
+  $dismissHelper = Join-Path $PSScriptRoot 'dismiss-obs-exit-dialog.ps1'
+  if (Test-Path -LiteralPath $dismissHelper) {
+    try {
+      Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$dismissHelper) | Out-Null
+    } catch { }
+  }
   Write-Host 'Requesting graceful close via CloseMainWindow...'
   $null = $process.CloseMainWindow()
   try {
