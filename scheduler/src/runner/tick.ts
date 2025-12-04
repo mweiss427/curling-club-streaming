@@ -41,18 +41,16 @@ const resolveNpxEnv = (): NpxEnvInfo => {
 
 const npxEnvInfo = resolveNpxEnv();
 const npxEnv = npxEnvInfo.env;
-const resolveNpxBinary = (): string => {
+const resolveNpxBinary = (): { binary: string; argsPrefix: string[] } => {
     if (process.platform !== 'win32') {
-        return 'npx';
+        return { binary: 'npx', argsPrefix: [] };
     }
     const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
     const shimPath = path.join(nodeDir, 'npx.cmd');
-    if (fs.existsSync(shimPath)) {
-        return shimPath;
-    }
-    return 'npx.cmd';
+    const shim = fs.existsSync(shimPath) ? shimPath : 'npx.cmd';
+    return { binary: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', shim] };
 };
-const npxBinary = resolveNpxBinary();
+const { binary: npxBinary, argsPrefix: npxArgsPrefix } = resolveNpxBinary();
 let loggedNpxDiagnostics = false;
 
 const logNpxDiagnostics = async (): Promise<void> => {
@@ -66,7 +64,9 @@ const logNpxDiagnostics = async (): Promise<void> => {
     if (npxEnvInfo.pathExtKey) {
         console.error(`[DEBUG] npx diagnostics -> PATHEXT: ${npxEnv[npxEnvInfo.pathExtKey] ?? ''}`);
     }
-    console.error(`[DEBUG] npx diagnostics -> binary: ${npxBinary}`);
+    console.error(
+        `[DEBUG] npx diagnostics -> binary: ${npxBinary} ${npxArgsPrefix.length ? `(via ${npxArgsPrefix.join(' ')})` : ''}`
+    );
 
     try {
         const { stdout } = await execFileAsync('where', ['npx'], { env: npxEnv });
@@ -268,8 +268,7 @@ export async function tick(opts: {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
                 await logNpxDiagnostics();
-                await withTimeout(
-                    execFileAsync(npxBinary, [
+                const npxArgs = [
                         '--yes',
                         '--prefix', schedulerDir,
                         'obs-cli',
@@ -277,7 +276,9 @@ export async function tick(opts: {
                         '--port', '4455',
                         '--password', wsPass,
                         'StartStream'
-                    ], { env: npxEnv }),
+                    ];
+                await withTimeout(
+                    execFileAsync(npxBinary, [...npxArgsPrefix, ...npxArgs], { env: npxEnv }),
                     5000,
                     'OBS websocket StartStream'
                 );
