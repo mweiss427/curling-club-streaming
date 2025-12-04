@@ -41,20 +41,24 @@ const resolveNpxEnv = (): NpxEnvInfo => {
 
 const npxEnvInfo = resolveNpxEnv();
 const npxEnv = npxEnvInfo.env;
-const resolveNpxBinary = (): { binary: string; argsPrefix: string[] } => {
+const resolveNpxCommand = (): { binary: string; buildArgs: (npxArgs: string[]) => string[] } => {
     if (process.platform !== 'win32') {
-        return { binary: 'npx', argsPrefix: [] };
+        return { binary: 'npx', buildArgs: (args) => args };
     }
     const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
     const shimPath = path.join(nodeDir, 'npx.cmd');
     const shim = fs.existsSync(shimPath) ? shimPath : 'npx.cmd';
-    const quotedShim = `"${shim.replace(/"/g, '""')}"`;
-    return { binary: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', quotedShim] };
+    const quote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+    const buildArgs = (npxArgs: string[]): string[] => {
+        const cmdString = [quote(shim), ...npxArgs.map((arg) => (arg.includes(' ') ? quote(arg) : arg))].join(' ');
+        return ['/d', '/s', '/c', cmdString];
+    };
+    return { binary: 'cmd.exe', buildArgs };
 };
-const { binary: npxBinary, argsPrefix: npxArgsPrefix } = resolveNpxBinary();
+const { binary: npxBinary, buildArgs: buildNpxArgs } = resolveNpxCommand();
 let loggedNpxDiagnostics = false;
 
-const logNpxDiagnostics = async (): Promise<void> => {
+const logNpxDiagnostics = async (npxCommandPreview: string[]): Promise<void> => {
     if (loggedNpxDiagnostics || process.platform !== 'win32') {
         return;
     }
@@ -66,7 +70,7 @@ const logNpxDiagnostics = async (): Promise<void> => {
         console.error(`[DEBUG] npx diagnostics -> PATHEXT: ${npxEnv[npxEnvInfo.pathExtKey] ?? ''}`);
     }
     console.error(
-        `[DEBUG] npx diagnostics -> binary: ${npxBinary} ${npxArgsPrefix.length ? `(via ${npxArgsPrefix.join(' ')})` : ''}`
+        `[DEBUG] npx diagnostics -> command: ${[npxBinary, ...npxCommandPreview].join(' ')}`
     );
 
     try {
@@ -268,7 +272,6 @@ export async function tick(opts: {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
-                await logNpxDiagnostics();
                 const npxArgs = [
                     '--yes',
                     '--prefix', schedulerDir,
@@ -278,8 +281,10 @@ export async function tick(opts: {
                     '--password', wsPass,
                     'StartStream'
                 ];
+                const subprocessArgs = buildNpxArgs(npxArgs);
+                await logNpxDiagnostics(subprocessArgs);
                 await withTimeout(
-                    execFileAsync(npxBinary, [...npxArgsPrefix, ...npxArgs], { env: npxEnv }),
+                    execFileAsync(npxBinary, subprocessArgs, { env: npxEnv }),
                     5000,
                     'OBS websocket StartStream'
                 );
