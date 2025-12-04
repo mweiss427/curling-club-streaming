@@ -41,6 +41,18 @@ const resolveNpxEnv = (): NpxEnvInfo => {
 
 const npxEnvInfo = resolveNpxEnv();
 const npxEnv = npxEnvInfo.env;
+const resolveNpxBinary = (): string => {
+    if (process.platform !== 'win32') {
+        return 'npx';
+    }
+    const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
+    const shimPath = path.join(nodeDir, 'npx.cmd');
+    if (fs.existsSync(shimPath)) {
+        return shimPath;
+    }
+    return 'npx.cmd';
+};
+const npxBinary = resolveNpxBinary();
 let loggedNpxDiagnostics = false;
 
 const logNpxDiagnostics = async (): Promise<void> => {
@@ -54,6 +66,7 @@ const logNpxDiagnostics = async (): Promise<void> => {
     if (npxEnvInfo.pathExtKey) {
         console.error(`[DEBUG] npx diagnostics -> PATHEXT: ${npxEnv[npxEnvInfo.pathExtKey] ?? ''}`);
     }
+    console.error(`[DEBUG] npx diagnostics -> binary: ${npxBinary}`);
 
     try {
         const { stdout } = await execFileAsync('where', ['npx'], { env: npxEnv });
@@ -256,7 +269,7 @@ export async function tick(opts: {
                 const schedulerDir = path.join(repoRoot, 'scheduler');
                 await logNpxDiagnostics();
                 await withTimeout(
-                    execFileAsync('npx', [
+                    execFileAsync(npxBinary, [
                         '--yes',
                         '--prefix', schedulerDir,
                         'obs-cli',
