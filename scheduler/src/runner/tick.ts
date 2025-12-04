@@ -8,22 +8,61 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
+type NpxEnvInfo = {
+    env: NodeJS.ProcessEnv;
+    nodeDir?: string;
+    pathKey: string;
+    pathExtKey?: string;
+};
+
 // Ensure the Node installation directory is on PATH so `npx` resolves even if the service account PATH is minimal
-const resolveNpxEnv = (): NodeJS.ProcessEnv => {
+const resolveNpxEnv = (): NpxEnvInfo => {
     if (process.platform !== 'win32') {
-        return process.env;
+        return { env: process.env, pathKey: 'PATH' };
     }
 
     const env = { ...process.env };
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+    const pathExtKey = Object.keys(env).find((key) => key.toLowerCase() === 'pathext') ?? 'PATHEXT';
     const nodeDir = path.dirname(process.execPath);
     const currentPath = env[pathKey] ?? '';
     if (!currentPath.toLowerCase().includes(nodeDir.toLowerCase())) {
         env[pathKey] = `${nodeDir};${currentPath}`;
     }
-    return env;
+
+    const currentPathExt = env[pathExtKey] ?? process.env[pathExtKey] ?? '';
+    if (!currentPathExt.toUpperCase().includes('.CMD')) {
+        const base = currentPathExt.length > 0 ? currentPathExt : '.COM;.EXE;.BAT';
+        env[pathExtKey] = `${base};.CMD`;
+    }
+
+    return { env, nodeDir, pathKey, pathExtKey };
 };
-const npxEnv = resolveNpxEnv();
+
+const npxEnvInfo = resolveNpxEnv();
+const npxEnv = npxEnvInfo.env;
+let loggedNpxDiagnostics = false;
+
+const logNpxDiagnostics = async (): Promise<void> => {
+    if (loggedNpxDiagnostics || process.platform !== 'win32') {
+        return;
+    }
+    loggedNpxDiagnostics = true;
+    console.error(
+        `[DEBUG] npx diagnostics -> nodeDir: ${npxEnvInfo.nodeDir ?? 'unknown'}, PATH: ${npxEnv[npxEnvInfo.pathKey] ?? ''}`
+    );
+    if (npxEnvInfo.pathExtKey) {
+        console.error(`[DEBUG] npx diagnostics -> PATHEXT: ${npxEnv[npxEnvInfo.pathExtKey] ?? ''}`);
+    }
+
+    try {
+        const { stdout } = await execFileAsync('where', ['npx'], { env: npxEnv });
+        const trimmed = stdout.trim();
+        console.error(`[DEBUG] where npx => ${trimmed.length > 0 ? trimmed : '(no match)'}`);
+    } catch (err) {
+        console.error('[WARN] `where npx` failed (diagnostic only):', err);
+    }
+};
 
 // Timeout wrapper to prevent infinite hangs
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
@@ -215,6 +254,7 @@ export async function tick(opts: {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
+                await logNpxDiagnostics();
                 await withTimeout(
                     execFileAsync('npx', [
                         '--yes',
