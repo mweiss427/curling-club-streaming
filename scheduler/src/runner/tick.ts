@@ -8,6 +8,19 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
+// Resolve npx in environments where PATH might not include the Node install dir
+const resolveNpxBinary = (): string => {
+    if (process.platform === 'win32') {
+        const bundled = path.join(path.dirname(process.execPath), 'npx.cmd');
+        if (fs.existsSync(bundled)) {
+            return bundled;
+        }
+        return 'npx.cmd';
+    }
+    return 'npx';
+};
+const npxBinary = resolveNpxBinary();
+
 // Timeout wrapper to prevent infinite hangs
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -199,7 +212,7 @@ export async function tick(opts: {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
                 await withTimeout(
-                    execFileAsync('npx', [
+                    execFileAsync(npxBinary, [
                         '--yes',
                         '--prefix', schedulerDir,
                         'obs-cli',
