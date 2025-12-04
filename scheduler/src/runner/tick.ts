@@ -48,9 +48,19 @@ const resolveNpxCommand = (): { binary: string; buildArgs: (npxArgs: string[]) =
     const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
     const shimPath = path.join(nodeDir, 'npx.cmd');
     const shim = fs.existsSync(shimPath) ? shimPath : 'npx.cmd';
-    const quote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+    // Escape cmd.exe special characters and quote all arguments for safety
+    // Handles: spaces, &, |, <, >, ^, %, !, and trailing backslashes before quotes
+    const escapeCmdArg = (value: string): string => {
+        // Handle trailing backslashes before quotes (cmd.exe treats \ before " as escaping)
+        let escaped = value.replace(/\\+$/g, (match) => match + match);
+        // Escape internal quotes by doubling them
+        escaped = escaped.replace(/"/g, '""');
+        // Always quote to handle all special characters safely
+        return `"${escaped}"`;
+    };
     const buildArgs = (npxArgs: string[]): string[] => {
-        const cmdString = [quote(shim), ...npxArgs.map((arg) => (arg.includes(' ') ? quote(arg) : arg))].join(' ');
+        // Quote shim and all arguments to handle special characters in paths, passwords, etc.
+        const cmdString = [escapeCmdArg(shim), ...npxArgs.map(escapeCmdArg)].join(' ');
         return ['/d', '/s', '/c', cmdString];
     };
     return { binary: 'cmd.exe', buildArgs };
@@ -58,7 +68,18 @@ const resolveNpxCommand = (): { binary: string; buildArgs: (npxArgs: string[]) =
 const { binary: npxBinary, buildArgs: buildNpxArgs } = resolveNpxCommand();
 let loggedNpxDiagnostics = false;
 
-const logNpxDiagnostics = async (npxCommandPreview: string[]): Promise<void> => {
+// Redact sensitive values from command strings for logging
+const redactSensitiveArgs = (args: string[], sensitiveKeys: string[]): string[] => {
+    const redacted = [...args];
+    for (let i = 0; i < redacted.length - 1; i++) {
+        if (sensitiveKeys.includes(redacted[i])) {
+            redacted[i + 1] = '***REDACTED***';
+        }
+    }
+    return redacted;
+};
+
+const logNpxDiagnostics = async (npxCommandPreview: string[], npxArgs: string[]): Promise<void> => {
     if (loggedNpxDiagnostics || process.platform !== 'win32') {
         return;
     }
@@ -69,8 +90,13 @@ const logNpxDiagnostics = async (npxCommandPreview: string[]): Promise<void> => 
     if (npxEnvInfo.pathExtKey) {
         console.error(`[DEBUG] npx diagnostics -> PATHEXT: ${npxEnv[npxEnvInfo.pathExtKey] ?? ''}`);
     }
+    // Redact password from command preview for safe logging
+    const redactedArgs = redactSensitiveArgs(npxArgs, ['--password']);
+    const redactedPreview = process.platform === 'win32'
+        ? buildNpxArgs(redactedArgs)
+        : redactedArgs;
     console.error(
-        `[DEBUG] npx diagnostics -> command: ${[npxBinary, ...npxCommandPreview].join(' ')}`
+        `[DEBUG] npx diagnostics -> command: ${[npxBinary, ...redactedPreview].join(' ')}`
     );
 
     try {
@@ -282,7 +308,7 @@ export async function tick(opts: {
                     'StartStream'
                 ];
                 const subprocessArgs = buildNpxArgs(npxArgs);
-                await logNpxDiagnostics(subprocessArgs);
+                await logNpxDiagnostics(subprocessArgs, npxArgs);
                 await withTimeout(
                     execFileAsync(npxBinary, subprocessArgs, { env: npxEnv }),
                     5000,
