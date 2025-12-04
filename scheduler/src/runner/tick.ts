@@ -52,19 +52,28 @@ if (!fs.existsSync(npxCommand) && npxCommand !== 'npx.cmd') {
 let loggedNpxDiagnostics = false;
 let npxTested = false;
 
-// Pre-flight test: verify npx.cmd works before using it for obs-cli
-const testNpxCommand = async (): Promise<void> => {
+// Pre-flight test: verify npx.cmd and obs-cli command structure works
+const testNpxCommand = async (schedulerDir: string): Promise<void> => {
     if (npxTested) {
         return;
     }
     npxTested = true;
     try {
-        const testCmd = `"${npxCommand}" --version`;
-        console.error(`[DEBUG] Testing npx.cmd: ${testCmd}`);
-        await execAsync(testCmd, { env: npxEnv, timeout: 2000 });
+        // Test 1: Verify npx works
+        const testNpxCmd = `"${npxCommand}" --version`;
+        console.error(`[DEBUG] Testing npx.cmd: ${testNpxCmd}`);
+        await execAsync(testNpxCmd, { env: npxEnv, timeout: 2000 });
         console.error(`[DEBUG] npx.cmd test passed`);
+
+        // Test 2: Verify obs-cli can be invoked with proper -- separator
+        // Use --help which doesn't require websocket connection
+        const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+        const testObsCliCmd = `"${npxCommand}" ${escapeArg('--yes')} ${escapeArg('--prefix')} ${escapeArg(schedulerDir)} obs-cli -- --help`;
+        console.error(`[DEBUG] Testing obs-cli command structure: ${testObsCliCmd}`);
+        await execAsync(testObsCliCmd, { env: npxEnv, timeout: 5000 });
+        console.error(`[DEBUG] obs-cli command structure test passed`);
     } catch (e) {
-        console.error(`[WARN] npx.cmd test failed (will continue anyway):`, e);
+        console.error(`[WARN] Pre-flight test failed (will continue anyway):`, e);
         // Don't throw - we'll try anyway and fail with better error if it doesn't work
     }
 };
@@ -296,23 +305,31 @@ export async function tick(opts: {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
-                // Build npx command args for obs-cli websocket StartStream
-                const npxArgs = [
-                    '--yes',
-                    '--prefix', schedulerDir,
-                    'obs-cli',
+
+                // Separate npx options from obs-cli arguments
+                // npx options: --yes, --prefix <dir>
+                // obs-cli arguments: --host, --port, --password, StartStream
+                const npxOptions = ['--yes', '--prefix', schedulerDir];
+                const obsCliArgs = [
                     '--host', '127.0.0.1',
                     '--port', '4455',
                     '--password', wsPass,
                     'StartStream'
                 ];
-                await logNpxDiagnostics(npxArgs);
 
-                // Pre-flight test: verify npx works
-                await testNpxCommand();
+                // Combine for logging (redact password)
+                const allArgsForLog = [...npxOptions, 'obs-cli', '--', ...obsCliArgs];
+                await logNpxDiagnostics(allArgsForLog);
 
-                // Build command string - exec() handles .cmd files automatically on Windows
-                const command = `"${npxCommand}" ${npxArgs.map(arg => `"${arg.replace(/"/g, '""')}"`).join(' ')}`;
+                // Pre-flight test: verify npx and obs-cli command structure works
+                await testNpxCommand(schedulerDir);
+
+                // Build command string with -- separator: npx --yes --prefix <dir> obs-cli -- --host ... --password ... StartStream
+                // The -- tells npx that everything after is for obs-cli, not npx
+                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
+                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
                 console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
 
                 try {
@@ -326,7 +343,8 @@ export async function tick(opts: {
                 } catch (execError) {
                     console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
                     // Fallback: use PowerShell to invoke npx (more reliable for complex paths)
-                    const psCommand = `& "${npxCommand}" ${npxArgs.map(arg => `"${arg.replace(/"/g, '""')}"`).join(' ')}`;
+                    // PowerShell pattern: npx --yes --prefix <dir> obs-cli @Args (matches working examples)
+                    const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
                     await withTimeout(
                         execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
                         5000,
