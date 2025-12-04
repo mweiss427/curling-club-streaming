@@ -48,7 +48,8 @@ const resolveNpxBinary = (): { binary: string; argsPrefix: string[] } => {
     const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
     const shimPath = path.join(nodeDir, 'npx.cmd');
     const shim = fs.existsSync(shimPath) ? shimPath : 'npx.cmd';
-    return { binary: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', shim] };
+    const quotedShim = `"${shim.replace(/"/g, '""')}"`;
+    return { binary: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', quotedShim] };
 };
 const { binary: npxBinary, argsPrefix: npxArgsPrefix } = resolveNpxBinary();
 let loggedNpxDiagnostics = false;
@@ -269,14 +270,14 @@ export async function tick(opts: {
                 const schedulerDir = path.join(repoRoot, 'scheduler');
                 await logNpxDiagnostics();
                 const npxArgs = [
-                        '--yes',
-                        '--prefix', schedulerDir,
-                        'obs-cli',
-                        '--host', '127.0.0.1',
-                        '--port', '4455',
-                        '--password', wsPass,
-                        'StartStream'
-                    ];
+                    '--yes',
+                    '--prefix', schedulerDir,
+                    'obs-cli',
+                    '--host', '127.0.0.1',
+                    '--port', '4455',
+                    '--password', wsPass,
+                    'StartStream'
+                ];
                 await withTimeout(
                     execFileAsync(npxBinary, [...npxArgsPrefix, ...npxArgs], { env: npxEnv }),
                     5000,
