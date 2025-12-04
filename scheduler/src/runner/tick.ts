@@ -132,6 +132,63 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation:
 // Simple sleep helper for polling loops
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Check if OBS stream is currently active via websocket
+// Retries a few times if websocket might not be ready yet (matches PowerShell pattern)
+async function checkStreamStatus(
+    schedulerDir: string,
+    wsHost: string,
+    wsPort: string,
+    wsPass: string
+): Promise<boolean> {
+    const npxOptions = ['--yes', '--prefix', schedulerDir];
+    const statusArgs = [
+        '--host', wsHost,
+        '--port', wsPort,
+        '--password', wsPass,
+        'GetStreamStatus',
+        '--json'
+    ];
+
+    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+    const statusArgsStr = statusArgs.map(escapeArg).join(' ');
+    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
+
+    // Retry up to 3 times if websocket might not be ready yet (matches PowerShell pattern)
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            if (attempt > 0) {
+                console.error(`[DEBUG] Retrying stream status check (attempt ${attempt + 1}/3)...`);
+                await sleep(500); // Wait 500ms between retries
+            } else {
+                console.error(`[DEBUG] Checking stream status: ${command.replace(wsPass, '***REDACTED***')}`);
+            }
+
+            const { stdout } = await withTimeout(
+                execAsync(command, { env: npxEnv, timeout: 3000 }),
+                3000,
+                'GetStreamStatus'
+            );
+
+            // Parse JSON response
+            const status = JSON.parse(stdout.trim());
+            const isActive = status.outputActive === true;
+            console.error(`[DEBUG] Stream status: outputActive=${isActive}`);
+            return isActive;
+        } catch (e) {
+            // Connection errors are expected if websocket isn't ready - retry or return false
+            if (attempt < 2) {
+                // Will retry on next iteration
+                continue;
+            }
+            // Last attempt failed - log warning but don't fail
+            console.error(`[WARN] Failed to check stream status after ${attempt + 1} attempts (websocket may not be ready):`, e);
+            return false; // Assume not active if we can't check
+        }
+    }
+    return false; // Should never reach here, but TypeScript needs this
+}
+
 export async function tick(opts: {
     sheet?: SheetKey;
     calendarId?: string;
@@ -305,52 +362,64 @@ export async function tick(opts: {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
-
-                // Separate npx options from obs-cli arguments
-                // npx options: --yes, --prefix <dir>
-                // obs-cli arguments: --host, --port, --password, StartStream
-                const npxOptions = ['--yes', '--prefix', schedulerDir];
-                const obsCliArgs = [
-                    '--host', '127.0.0.1',
-                    '--port', '4455',
-                    '--password', wsPass,
-                    'StartStream'
-                ];
-
-                // Combine for logging (redact password)
-                const allArgsForLog = [...npxOptions, 'obs-cli', '--', ...obsCliArgs];
-                await logNpxDiagnostics(allArgsForLog);
+                const wsHost = '127.0.0.1';
+                const wsPort = '4455';
 
                 // Pre-flight test: verify npx and obs-cli command structure works
                 await testNpxCommand(schedulerDir);
 
-                // Build command string with -- separator: npx --yes --prefix <dir> obs-cli -- --host ... --password ... StartStream
-                // The -- tells npx that everything after is for obs-cli, not npx
-                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
-                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
+                // Check if stream is already active before attempting to start
+                console.error(`[DEBUG] Checking if stream is already active...`);
+                const isStreamActive = await checkStreamStatus(schedulerDir, wsHost, wsPort, wsPass);
 
-                try {
-                    // Primary method: use exec() - simpler and more reliable for .cmd files
-                    await withTimeout(
-                        execAsync(command, { env: npxEnv, timeout: 5000 }),
-                        5000,
-                        'OBS websocket StartStream'
-                    );
-                    console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
-                } catch (execError) {
-                    console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
-                    // Fallback: use PowerShell to invoke npx (more reliable for complex paths)
-                    // PowerShell pattern: npx --yes --prefix <dir> obs-cli @Args (matches working examples)
-                    const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                    await withTimeout(
-                        execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
-                        5000,
-                        'OBS websocket StartStream (PowerShell fallback)'
-                    );
-                    console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
+                if (isStreamActive) {
+                    console.error(`[DEBUG] Stream is already active, skipping StartStream`);
+                } else {
+                    console.error(`[DEBUG] Stream is not active, starting stream...`);
+
+                    // Separate npx options from obs-cli arguments
+                    // npx options: --yes, --prefix <dir>
+                    // obs-cli arguments: --host, --port, --password, StartStream
+                    const npxOptions = ['--yes', '--prefix', schedulerDir];
+                    const obsCliArgs = [
+                        '--host', wsHost,
+                        '--port', wsPort,
+                        '--password', wsPass,
+                        'StartStream'
+                    ];
+
+                    // Combine for logging (redact password)
+                    const allArgsForLog = [...npxOptions, 'obs-cli', '--', ...obsCliArgs];
+                    await logNpxDiagnostics(allArgsForLog);
+
+                    // Build command string with -- separator: npx --yes --prefix <dir> obs-cli -- --host ... --password ... StartStream
+                    // The -- tells npx that everything after is for obs-cli, not npx
+                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                    const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
+                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                    console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
+
+                    try {
+                        // Primary method: use exec() - simpler and more reliable for .cmd files
+                        await withTimeout(
+                            execAsync(command, { env: npxEnv, timeout: 5000 }),
+                            5000,
+                            'OBS websocket StartStream'
+                        );
+                        console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
+                    } catch (execError) {
+                        console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
+                        // Fallback: use PowerShell to invoke npx (more reliable for complex paths)
+                        // PowerShell pattern: npx --yes --prefix <dir> obs-cli @Args (matches working examples)
+                        const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                        await withTimeout(
+                            execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
+                            5000,
+                            'OBS websocket StartStream (PowerShell fallback)'
+                        );
+                        console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
+                    }
                 }
             } catch (e) {
                 console.error(`[WARN] Failed to start stream via websocket, falling back to launch method:`, e);
