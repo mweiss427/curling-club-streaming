@@ -304,7 +304,7 @@ export async function tick(opts: {
     type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string };
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const stateDir = path.resolve(moduleDir, '../../.state');
-    const statePath = path.join(stateDir, 'current.json');
+    const statePath = path.join(stateDir, `current-${opts.sheet ?? 'default'}.json`);
     const readState = (): TickState | undefined => {
         try { return JSON.parse(fs.readFileSync(statePath, 'utf8')) as TickState; } catch { return undefined; }
     };
@@ -472,12 +472,14 @@ export async function tick(opts: {
                             validationMethod = 'youtube-api';
                         } else {
                             // Both methods failed - can't validate
-                            console.error(`[WARN] Cannot validate stream status (websocket and YouTube API both unavailable). OBS is running - assuming stream might be active and skipping start.`);
-                            validationMethod = 'none (assumed active)';
+                            console.error(`[WARN] Cannot validate stream status (websocket and YouTube API both unavailable). Will attempt to start stream to be safe.`);
+                            shouldStartStream = true; // Default to starting if we can't confirm it's active
+                            validationMethod = 'none (cannot validate - starting to be safe)';
                         }
                     } else {
-                        console.error(`[WARN] Cannot validate stream status (websocket unavailable and no broadcast ID). OBS is running - assuming stream might be active and skipping start.`);
-                        validationMethod = 'none (assumed active)';
+                        console.error(`[WARN] Cannot validate stream status (websocket unavailable and no broadcast ID). Will attempt to start stream to be safe.`);
+                        shouldStartStream = true; // Default to starting if we can't confirm it's active
+                        validationMethod = 'none (cannot validate - starting to be safe)';
                     }
                 }
 
@@ -523,6 +525,24 @@ export async function tick(opts: {
                         );
                         console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
                     }
+
+                    // Verify that stream actually started
+                    console.error(`[DEBUG] Waiting 3 seconds before verifying stream started...`);
+                    await sleep(3000);
+                    const verifyStatus = await checkStreamStatus(
+                        schedulerDir,
+                        wsHost,
+                        wsPort,
+                        wsPass,
+                        currentState?.obsStartTime
+                    );
+                    if (verifyStatus === true) {
+                        console.error(`[DEBUG] Stream verification successful - stream is now active`);
+                    } else if (verifyStatus === false) {
+                        console.error(`[ERROR] Stream verification failed - stream is still not active after StartStream command`);
+                    } else {
+                        console.error(`[WARN] Stream verification inconclusive - could not confirm stream status after StartStream command`);
+                    }
                 } else {
                     console.error(`[DEBUG] Stream validation complete (method: ${validationMethod}), no action needed`);
                 }
@@ -531,7 +551,25 @@ export async function tick(opts: {
                 console.error(`[WARN] Failed to validate or start stream via websocket (OBS is already running, not launching again):`, e);
             }
         } else {
-            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot validate or start stream via websocket. OBS is already running - not launching again.`);
+            console.error(`[ERROR] OBS_WEBSOCKET_PASSWORD not set, cannot validate or start stream via websocket. OBS is already running.`);
+            // Try YouTube API as fallback if we have a broadcast ID
+            if (broadcastId) {
+                console.error(`[DEBUG] Attempting to check stream status via YouTube API as fallback...`);
+                const ytStreamStatus = await checkYouTubeStreamStatus(
+                    broadcastId,
+                    opts.credentialsPath,
+                    opts.tokenPath
+                );
+                if (ytStreamStatus === false) {
+                    console.error(`[ERROR] YouTube API confirms stream is NOT live, but cannot start stream without OBS_WEBSOCKET_PASSWORD. Please set OBS_WEBSOCKET_PASSWORD in environment.`);
+                } else if (ytStreamStatus === true) {
+                    console.error(`[DEBUG] YouTube API confirms stream IS live, no action needed`);
+                } else {
+                    console.error(`[WARN] Cannot verify stream status via YouTube API either. Stream may or may not be active.`);
+                }
+            } else {
+                console.error(`[ERROR] No broadcast ID available and no websocket password. Cannot verify or start stream.`);
+            }
         }
         return 'ALREADY_LIVE';
     }
