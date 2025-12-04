@@ -8,18 +8,22 @@ import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
-// Resolve npx in environments where PATH might not include the Node install dir
-const resolveNpxBinary = (): string => {
-    if (process.platform === 'win32') {
-        const bundled = path.join(path.dirname(process.execPath), 'npx.cmd');
-        if (fs.existsSync(bundled)) {
-            return bundled;
-        }
-        return 'npx.cmd';
+// Ensure the Node installation directory is on PATH so `npx` resolves even if the service account PATH is minimal
+const resolveNpxEnv = (): NodeJS.ProcessEnv => {
+    if (process.platform !== 'win32') {
+        return process.env;
     }
-    return 'npx';
+
+    const env = { ...process.env };
+    const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+    const nodeDir = path.dirname(process.execPath);
+    const currentPath = env[pathKey] ?? '';
+    if (!currentPath.toLowerCase().includes(nodeDir.toLowerCase())) {
+        env[pathKey] = `${nodeDir};${currentPath}`;
+    }
+    return env;
 };
-const npxBinary = resolveNpxBinary();
+const npxEnv = resolveNpxEnv();
 
 // Timeout wrapper to prevent infinite hangs
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
@@ -212,7 +216,7 @@ export async function tick(opts: {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
                 await withTimeout(
-                    execFileAsync(npxBinary, [
+                    execFileAsync('npx', [
                         '--yes',
                         '--prefix', schedulerDir,
                         'obs-cli',
@@ -220,7 +224,7 @@ export async function tick(opts: {
                         '--port', '4455',
                         '--password', wsPass,
                         'StartStream'
-                    ]),
+                    ], { env: npxEnv }),
                     5000,
                     'OBS websocket StartStream'
                 );
