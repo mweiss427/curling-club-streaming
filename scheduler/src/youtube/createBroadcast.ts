@@ -83,6 +83,64 @@ export async function createBroadcastAndBind(opts: {
     return broadcastId;
 }
 
+export async function getBroadcastStreamInfo(
+    broadcastId: string,
+    credentialsPath?: string,
+    tokenPath?: string
+): Promise<{ streamId?: string; streamKey?: string } | null> {
+    try {
+        const keyPath = credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+        const resolvedTokenPath = tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+        const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+        const youtube = google.youtube('v3');
+
+        // Get broadcast details including bound stream
+        const broadcastResp = await youtube.liveBroadcasts.list({
+            auth,
+            part: ['contentDetails'],
+            id: [broadcastId],
+            maxResults: 1
+        });
+
+        const broadcast = broadcastResp.data.items?.[0];
+        if (!broadcast) {
+            console.error(`[WARN] Broadcast ${broadcastId} not found`);
+            return null;
+        }
+
+        const boundStreamId = broadcast.contentDetails?.boundStreamId;
+        if (!boundStreamId) {
+            console.error(`[WARN] Broadcast ${broadcastId} is not bound to a stream`);
+            return { streamId: undefined, streamKey: undefined };
+        }
+
+        // Look up the stream to get the stream key
+        const streamResp = await youtube.liveStreams.list({
+            auth,
+            part: ['id', 'cdn'],
+            id: [boundStreamId],
+            maxResults: 1
+        });
+
+        const stream = streamResp.data.items?.[0];
+        if (!stream) {
+            console.error(`[WARN] Stream ${boundStreamId} not found`);
+            return { streamId: boundStreamId, streamKey: undefined };
+        }
+
+        const streamKey = stream.cdn?.ingestionInfo?.streamName;
+        console.error(`[DEBUG] Broadcast ${broadcastId} is bound to stream ${boundStreamId} with key: ${streamKey ?? '(not found)'}`);
+
+        return {
+            streamId: boundStreamId,
+            streamKey: streamKey ?? undefined
+        };
+    } catch (e) {
+        console.error(`[WARN] Failed to get broadcast stream info:`, e);
+        return null;
+    }
+}
+
 export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
     const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
     const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;

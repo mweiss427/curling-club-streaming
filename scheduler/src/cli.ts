@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey } from './google/list.js';
+import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey, getSheetConfig } from './google/list.js';
 import { createBroadcastAndBind, listLiveStreams } from './youtube/createBroadcast.js';
 import { initAuth, getAuthStatus } from './youtube/auth.js';
 import { tick } from './runner/tick.js';
@@ -191,12 +191,15 @@ async function main(): Promise<void> {
     }
 
     if (cmd === 'tick') {
+        const sheet = (argv.sheet as SheetKey | undefined) ?? (process.env.SHEET_KEY as SheetKey | undefined);
+        // Get stream config from config.json if sheet is specified, otherwise use env vars
+        const sheetConfig = getSheetConfig(sheet);
         const result = await tick({
-            sheet: (argv.sheet as SheetKey | undefined) ?? (process.env.SHEET_KEY as SheetKey | undefined),
+            sheet,
             calendarId: (argv['calendar-id'] as string | undefined) ?? process.env.CALENDAR_ID,
             privacy: (argv.privacy as any) ?? 'public',
-            streamId: (argv['stream-id'] as string | undefined) ?? process.env.YOUTUBE_STREAM_ID,
-            streamKey: (argv['stream-key'] as string | undefined) ?? process.env.YOUTUBE_STREAM_KEY,
+            streamId: (argv['stream-id'] as string | undefined) ?? sheetConfig?.streamId ?? process.env.YOUTUBE_STREAM_ID,
+            streamKey: (argv['stream-key'] as string | undefined) ?? sheetConfig?.streamKey ?? process.env.YOUTUBE_STREAM_KEY,
             credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
             tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH,
             obsExe: (argv['obs-exe'] as string | undefined) ?? process.env.OBS_EXE,

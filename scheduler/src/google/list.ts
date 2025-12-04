@@ -8,7 +8,9 @@ const SheetKeySchema = z.enum(['A', 'B', 'C', 'D']);
 const ConfigSchema = z.object({
     timezone: z.string().default('America/Chicago'),
     sheets: z.record(SheetKeySchema, z.object({
-        calendarId: z.string().min(3)
+        calendarId: z.string().min(3),
+        streamId: z.string().optional(),
+        streamKey: z.string().optional()
     }))
 });
 
@@ -35,6 +37,23 @@ function loadConfig() {
     const raw = fs.readFileSync(configPath, 'utf8');
     const parsed = JSON.parse(raw);
     return ConfigSchema.parse(parsed);
+}
+
+export function getSheetConfig(sheetKey?: SheetKey): { streamId?: string; streamKey?: string } | undefined {
+    if (!sheetKey) return undefined;
+    try {
+        const config = loadConfig();
+        const sheetConfig = config.sheets[sheetKey];
+        if (!sheetConfig) return undefined;
+        // Return only stream-related config, not calendarId
+        return {
+            streamId: sheetConfig.streamId,
+            streamKey: sheetConfig.streamKey
+        };
+    } catch {
+        // Config file doesn't exist or is invalid - return undefined to fall back to env vars
+        return undefined;
+    }
 }
 
 function getAuth() {

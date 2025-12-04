@@ -1,5 +1,5 @@
 import { listCurrentSingle, SheetKey } from '../google/list.js';
-import { createBroadcastAndBind, Privacy } from '../youtube/createBroadcast.js';
+import { createBroadcastAndBind, Privacy, getBroadcastStreamInfo } from '../youtube/createBroadcast.js';
 import { getOAuthClient as getOAuthClientWithToken } from '../youtube/auth.js';
 import { google } from 'googleapis';
 import { execFile, exec } from 'node:child_process';
@@ -301,7 +301,7 @@ export async function tick(opts: {
     }
 
     // Simple state persistence to ensure one broadcast per event
-    type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string };
+    type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string; expectedStreamKey?: string };
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const stateDir = path.resolve(moduleDir, '../../.state');
     const statePath = path.join(stateDir, `current-${opts.sheet ?? 'default'}.json`);
@@ -342,9 +342,12 @@ export async function tick(opts: {
     const description = current.description ?? current.summary ?? undefined;
 
     // Ensure a broadcast is ready and bound, but only once per event
+    let broadcastId: string;
+    let expectedStreamKey: string | undefined;
+
     if (!st || st.eventKey !== eventKey) {
         console.error(`[DEBUG] Creating new broadcast for event: ${title}`);
-        const broadcastId = await withTimeout(
+        broadcastId = await withTimeout(
             createBroadcastAndBind({
                 title,
                 description,
@@ -359,9 +362,56 @@ export async function tick(opts: {
             'YouTube broadcast creation'
         );
         console.error(`[DEBUG] Broadcast created successfully: ${broadcastId}`);
-        writeState({ eventKey, broadcastId });
+
+        // Look up the stream key from the broadcast
+        console.error(`[DEBUG] Looking up stream key for broadcast ${broadcastId}...`);
+        const streamInfo = await getBroadcastStreamInfo(
+            broadcastId,
+            opts.credentialsPath,
+            opts.tokenPath
+        );
+        if (streamInfo?.streamKey) {
+            expectedStreamKey = streamInfo.streamKey;
+            console.error(`[DEBUG] Broadcast is bound to stream key: ${expectedStreamKey}`);
+        } else {
+            console.error(`[WARN] Could not determine stream key from broadcast ${broadcastId}`);
+        }
+
+        writeState({ eventKey, broadcastId, expectedStreamKey });
     } else {
-        console.error(`[DEBUG] Using existing broadcast for event: ${st.broadcastId}`);
+        broadcastId = st.broadcastId;
+        expectedStreamKey = st.expectedStreamKey;
+        console.error(`[DEBUG] Using existing broadcast for event: ${broadcastId}`);
+
+        // If we don't have the stream key in state, look it up
+        if (!expectedStreamKey) {
+            console.error(`[DEBUG] Stream key not in state, looking up from broadcast...`);
+            const streamInfo = await getBroadcastStreamInfo(
+                broadcastId,
+                opts.credentialsPath,
+                opts.tokenPath
+            );
+            if (streamInfo?.streamKey) {
+                expectedStreamKey = streamInfo.streamKey;
+                console.error(`[DEBUG] Found stream key: ${expectedStreamKey}`);
+                // Update state with the stream key
+                writeState({ ...st, expectedStreamKey });
+            }
+        }
+    }
+
+    // Validate that OBS should be configured with the expected stream key
+    if (expectedStreamKey) {
+        const sheetName = opts.sheet ?? 'unknown';
+        console.error(`[INFO] Sheet ${sheetName} broadcast ${broadcastId} expects stream key: ${expectedStreamKey}`);
+        console.error(`[INFO] Verify OBS on this machine is configured with this stream key in the profile settings.`);
+        console.error(`[INFO] OBS config location: {OBS_DATA_DIR}/basic/profiles/${profile}/service.json -> settings.key`);
+        console.error(`[INFO] Expected value: ${expectedStreamKey}`);
+
+        // Note: We cannot directly read OBS config from remote machines, so manual verification is required
+        // In the future, we could use OBS websocket to query current stream settings
+    } else {
+        console.error(`[WARN] Could not determine expected stream key for broadcast ${broadcastId}. Cannot validate OBS configuration.`);
     }
 
     // Start OBS if not already running; the single-instance will reuse
@@ -410,9 +460,60 @@ export async function tick(opts: {
         console.error(`[DEBUG] OBS started (detached)`);
 
         // Track when OBS was started for better websocket retry logic
+        const obsStartTime = new Date().toISOString();
         const currentState = readState();
         if (currentState) {
-            writeState({ ...currentState, obsStartTime: new Date().toISOString() });
+            writeState({ ...currentState, obsStartTime });
+        }
+
+        // Wait for websocket to be ready and verify stream started (if websocket password is set)
+        const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
+        if (wsPass) {
+            const repoRoot = path.resolve(moduleDir, '../../..');
+            const schedulerDir = path.join(repoRoot, 'scheduler');
+            const wsHost = '127.0.0.1';
+            const wsPort = '4455';
+
+            console.error(`[DEBUG] Waiting for OBS websocket server to be ready...`);
+            // Wait up to 20 seconds for websocket to be ready (40 attempts * 500ms)
+            let wsReady = false;
+            for (let i = 0; i < 40; i++) {
+                try {
+                    const status = await checkStreamStatus(schedulerDir, wsHost, wsPort, wsPass, obsStartTime);
+                    if (status !== null) {
+                        // Got a response (true or false), websocket is ready
+                        wsReady = true;
+                        console.error(`[DEBUG] OBS websocket server is ready`);
+                        // If stream is not active, try to start it
+                        if (status === false) {
+                            console.error(`[DEBUG] Stream is not active, attempting to start via websocket...`);
+                            try {
+                                const npxOptions = ['--yes', '--prefix', schedulerDir];
+                                const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, 'StartStream'];
+                                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
+                                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                                await withTimeout(execAsync(command, { env: npxEnv, timeout: 5000 }), 5000, 'StartStream after OBS launch');
+                                console.error(`[DEBUG] StartStream command sent successfully`);
+                            } catch (e) {
+                                console.error(`[WARN] Failed to send StartStream command after OBS launch:`, e);
+                            }
+                        } else {
+                            console.error(`[DEBUG] Stream is already active`);
+                        }
+                        break;
+                    }
+                } catch (e) {
+                    // Connection error - websocket not ready yet, continue waiting
+                }
+                await sleep(500);
+            }
+            if (!wsReady) {
+                console.error(`[WARN] OBS websocket server not ready after 20 seconds. Stream may not have started automatically.`);
+            }
+        } else {
+            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot verify stream started after OBS launch`);
         }
 
         return 'STARTED';
@@ -504,26 +605,82 @@ export async function tick(opts: {
                     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
                     const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
                     const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                    console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
 
-                    try {
-                        // Primary method: use exec() - simpler and more reliable for .cmd files
-                        await withTimeout(
-                            execAsync(command, { env: npxEnv, timeout: 5000 }),
-                            5000,
-                            'OBS websocket StartStream'
-                        );
-                        console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
-                    } catch (execError) {
-                        console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
-                        // Fallback: use PowerShell to invoke npx
-                        const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                        await withTimeout(
-                            execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
-                            5000,
-                            'OBS websocket StartStream (PowerShell fallback)'
-                        );
-                        console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
+                    // Retry StartStream command if websocket isn't ready yet
+                    // OBS websocket server may take time to start after OBS launches
+                    let startStreamSuccess = false;
+                    let maxStartAttempts = 15;
+                    let startWaitTimeMs = 2000; // 2 seconds between retries
+
+                    // If OBS was recently started, wait longer and retry more
+                    if (currentState?.obsStartTime) {
+                        const startTime = new Date(currentState.obsStartTime).getTime();
+                        const now = Date.now();
+                        const secondsSinceStart = (now - startTime) / 1000;
+
+                        if (secondsSinceStart < 60) {
+                            maxStartAttempts = 20; // More attempts for recently started OBS
+                            startWaitTimeMs = 3000; // 3 seconds between retries
+                            console.error(`[DEBUG] OBS was started ${Math.round(secondsSinceStart)}s ago, using extended retry logic for StartStream`);
+                        }
+                    }
+
+                    for (let attempt = 0; attempt < maxStartAttempts; attempt++) {
+                        try {
+                            if (attempt > 0) {
+                                console.error(`[DEBUG] Retrying StartStream command (attempt ${attempt + 1}/${maxStartAttempts})...`);
+                                await sleep(startWaitTimeMs);
+                            } else {
+                                console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
+                            }
+
+                            // Primary method: use exec() - simpler and more reliable for .cmd files
+                            await withTimeout(
+                                execAsync(command, { env: npxEnv, timeout: 5000 }),
+                                5000,
+                                'OBS websocket StartStream'
+                            );
+                            console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
+                            startStreamSuccess = true;
+                            break;
+                        } catch (execError: any) {
+                            const errorStr = String(execError?.stderr ?? execError?.message ?? execError);
+                            const isConnectionError = errorStr.includes('CONNECTION_ERROR') || errorStr.includes('Connection error');
+
+                            if (isConnectionError && attempt < maxStartAttempts - 1) {
+                                // Connection error - websocket not ready yet, will retry
+                                console.error(`[DEBUG] Websocket not ready yet (attempt ${attempt + 1}/${maxStartAttempts}), will retry...`);
+                                continue;
+                            }
+
+                            // Try PowerShell fallback for non-connection errors or last attempt
+                            if (attempt === 0 || (!isConnectionError && attempt < maxStartAttempts - 1)) {
+                                console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
+                                try {
+                                    const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                                    await withTimeout(
+                                        execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
+                                        5000,
+                                        'OBS websocket StartStream (PowerShell fallback)'
+                                    );
+                                    console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
+                                    startStreamSuccess = true;
+                                    break;
+                                } catch (psError) {
+                                    if (attempt < maxStartAttempts - 1) {
+                                        continue; // Retry on next iteration
+                                    }
+                                    throw psError; // Last attempt failed
+                                }
+                            } else {
+                                // Last attempt failed
+                                throw execError;
+                            }
+                        }
+                    }
+
+                    if (!startStreamSuccess) {
+                        console.error(`[ERROR] Failed to send StartStream command after ${maxStartAttempts} attempts. Websocket may not be available.`);
                     }
 
                     // Verify that stream actually started
