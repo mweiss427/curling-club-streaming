@@ -1,5 +1,7 @@
 import { listCurrentSingle, SheetKey } from '../google/list.js';
 import { createBroadcastAndBind, Privacy } from '../youtube/createBroadcast.js';
+import { getOAuthClient as getOAuthClientWithToken } from '../youtube/auth.js';
+import { google } from 'googleapis';
 import { execFile, exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
@@ -133,13 +135,15 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation:
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Check if OBS stream is currently active via websocket
-// Retries a few times if websocket might not be ready yet (matches PowerShell pattern)
+// Returns: true if active, false if confirmed inactive, null if unknown (can't check)
+// Retries with longer waits if OBS was recently started
 async function checkStreamStatus(
     schedulerDir: string,
     wsHost: string,
     wsPort: string,
-    wsPass: string
-): Promise<boolean> {
+    wsPass: string,
+    obsStartTime?: string
+): Promise<boolean | null> {
     const npxOptions = ['--yes', '--prefix', schedulerDir];
     const statusArgs = [
         '--host', wsHost,
@@ -154,12 +158,27 @@ async function checkStreamStatus(
     const statusArgsStr = statusArgs.map(escapeArg).join(' ');
     const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
 
-    // Retry up to 3 times if websocket might not be ready yet (matches PowerShell pattern)
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // Determine retry count and wait time based on when OBS was started
+    let maxAttempts = 6;
+    let waitTimeMs = 2000; // 2 seconds between retries
+
+    if (obsStartTime) {
+        const startTime = new Date(obsStartTime).getTime();
+        const now = Date.now();
+        const secondsSinceStart = (now - startTime) / 1000;
+
+        // If OBS was started less than 60 seconds ago, wait longer
+        if (secondsSinceStart < 60) {
+            maxAttempts = 10; // More attempts for recently started OBS
+            waitTimeMs = 3000; // 3 seconds between retries
+        }
+    }
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
             if (attempt > 0) {
-                console.error(`[DEBUG] Retrying stream status check (attempt ${attempt + 1}/3)...`);
-                await sleep(500); // Wait 500ms between retries
+                console.error(`[DEBUG] Retrying stream status check (attempt ${attempt + 1}/${maxAttempts})...`);
+                await sleep(waitTimeMs);
             } else {
                 console.error(`[DEBUG] Checking stream status: ${command.replace(wsPass, '***REDACTED***')}`);
             }
@@ -176,17 +195,53 @@ async function checkStreamStatus(
             console.error(`[DEBUG] Stream status: outputActive=${isActive}`);
             return isActive;
         } catch (e) {
-            // Connection errors are expected if websocket isn't ready - retry or return false
-            if (attempt < 2) {
+            // Connection errors are expected if websocket isn't ready - retry or return null
+            if (attempt < maxAttempts - 1) {
                 // Will retry on next iteration
                 continue;
             }
-            // Last attempt failed - log warning but don't fail
+            // Last attempt failed - return null to indicate unknown status
             console.error(`[WARN] Failed to check stream status after ${attempt + 1} attempts (websocket may not be ready):`, e);
-            return false; // Assume not active if we can't check
+            return null; // Unknown - can't check, don't assume inactive
         }
     }
-    return false; // Should never reach here, but TypeScript needs this
+    return null; // Should never reach here, but TypeScript needs this
+}
+
+// Check if YouTube broadcast is actually live via YouTube API
+// Returns: true if live, false if not live, null if unknown (can't check)
+async function checkYouTubeStreamStatus(
+    broadcastId: string,
+    credentialsPath?: string,
+    tokenPath?: string
+): Promise<boolean | null> {
+    try {
+        const keyPath = credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+        const resolvedTokenPath = tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+        const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+        const youtube = google.youtube('v3');
+
+        const response = await youtube.liveBroadcasts.list({
+            auth,
+            part: ['status'],
+            id: [broadcastId],
+            maxResults: 1
+        });
+
+        const broadcast = response.data.items?.[0];
+        if (!broadcast) {
+            console.error(`[WARN] Broadcast ${broadcastId} not found in YouTube API`);
+            return null;
+        }
+
+        const lifeCycleStatus = broadcast.status?.lifeCycleStatus;
+        const isLive = lifeCycleStatus === 'live';
+        console.error(`[DEBUG] YouTube broadcast status: lifeCycleStatus=${lifeCycleStatus}, isLive=${isLive}`);
+        return isLive;
+    } catch (e) {
+        console.error(`[WARN] Failed to check YouTube stream status:`, e);
+        return null; // Unknown - can't check
+    }
 }
 
 export async function tick(opts: {
@@ -246,7 +301,7 @@ export async function tick(opts: {
     }
 
     // Simple state persistence to ensure one broadcast per event
-    type TickState = { eventKey: string; broadcastId: string };
+    type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string };
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const stateDir = path.resolve(moduleDir, '../../.state');
     const statePath = path.join(stateDir, 'current.json');
@@ -353,11 +408,21 @@ export async function tick(opts: {
             await sleep(3000);
         }
         console.error(`[DEBUG] OBS started (detached)`);
+
+        // Track when OBS was started for better websocket retry logic
+        const currentState = readState();
+        if (currentState) {
+            writeState({ ...currentState, obsStartTime: new Date().toISOString() });
+        }
+
         return 'STARTED';
     } else {
-        console.error(`[DEBUG] OBS already running, using obs-websocket to start streaming...`);
-        // Use obs-websocket instead of launching OBS again (which causes "already running" dialog)
+        console.error(`[DEBUG] OBS already running, validating stream status...`);
+        // Use obs-websocket to check and start streaming if needed
         const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
+        const currentState = readState();
+        const broadcastId = currentState?.broadcastId;
+
         if (wsPass) {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
@@ -368,18 +433,58 @@ export async function tick(opts: {
                 // Pre-flight test: verify npx and obs-cli command structure works
                 await testNpxCommand(schedulerDir);
 
-                // Check if stream is already active before attempting to start
-                console.error(`[DEBUG] Checking if stream is already active...`);
-                const isStreamActive = await checkStreamStatus(schedulerDir, wsHost, wsPort, wsPass);
+                // Step 1: Try to check stream status via websocket
+                console.error(`[DEBUG] Checking stream status via websocket...`);
+                const wsStreamStatus = await checkStreamStatus(
+                    schedulerDir,
+                    wsHost,
+                    wsPort,
+                    wsPass,
+                    currentState?.obsStartTime
+                );
 
-                if (isStreamActive) {
-                    console.error(`[DEBUG] Stream is already active, skipping StartStream`);
+                let shouldStartStream = false;
+                let validationMethod = '';
+
+                if (wsStreamStatus === true) {
+                    console.error(`[DEBUG] Stream is confirmed active via websocket, skipping StartStream`);
+                    validationMethod = 'websocket';
+                } else if (wsStreamStatus === false) {
+                    console.error(`[DEBUG] Stream is confirmed inactive via websocket, will start stream`);
+                    shouldStartStream = true;
+                    validationMethod = 'websocket';
                 } else {
-                    console.error(`[DEBUG] Stream is not active, starting stream...`);
+                    // Websocket status is unknown (null) - try YouTube API as fallback
+                    console.error(`[DEBUG] Websocket status unknown, checking YouTube API...`);
+                    if (broadcastId) {
+                        const ytStreamStatus = await checkYouTubeStreamStatus(
+                            broadcastId,
+                            opts.credentialsPath,
+                            opts.tokenPath
+                        );
+
+                        if (ytStreamStatus === true) {
+                            console.error(`[DEBUG] Stream is confirmed live via YouTube API, skipping StartStream`);
+                            validationMethod = 'youtube-api';
+                        } else if (ytStreamStatus === false) {
+                            console.error(`[DEBUG] Stream is confirmed not live via YouTube API, will start stream`);
+                            shouldStartStream = true;
+                            validationMethod = 'youtube-api';
+                        } else {
+                            // Both methods failed - can't validate
+                            console.error(`[WARN] Cannot validate stream status (websocket and YouTube API both unavailable). OBS is running - assuming stream might be active and skipping start.`);
+                            validationMethod = 'none (assumed active)';
+                        }
+                    } else {
+                        console.error(`[WARN] Cannot validate stream status (websocket unavailable and no broadcast ID). OBS is running - assuming stream might be active and skipping start.`);
+                        validationMethod = 'none (assumed active)';
+                    }
+                }
+
+                if (shouldStartStream) {
+                    console.error(`[DEBUG] Stream is not active (validated via ${validationMethod}), starting stream...`);
 
                     // Separate npx options from obs-cli arguments
-                    // npx options: --yes, --prefix <dir>
-                    // obs-cli arguments: --host, --port, --password, StartStream
                     const npxOptions = ['--yes', '--prefix', schedulerDir];
                     const obsCliArgs = [
                         '--host', wsHost,
@@ -392,8 +497,7 @@ export async function tick(opts: {
                     const allArgsForLog = [...npxOptions, 'obs-cli', '--', ...obsCliArgs];
                     await logNpxDiagnostics(allArgsForLog);
 
-                    // Build command string with -- separator: npx --yes --prefix <dir> obs-cli -- --host ... --password ... StartStream
-                    // The -- tells npx that everything after is for obs-cli, not npx
+                    // Build command string with -- separator
                     const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
                     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
                     const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
@@ -410,8 +514,7 @@ export async function tick(opts: {
                         console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
                     } catch (execError) {
                         console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
-                        // Fallback: use PowerShell to invoke npx (more reliable for complex paths)
-                        // PowerShell pattern: npx --yes --prefix <dir> obs-cli @Args (matches working examples)
+                        // Fallback: use PowerShell to invoke npx
                         const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
                         await withTimeout(
                             execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
@@ -420,32 +523,15 @@ export async function tick(opts: {
                         );
                         console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
                     }
+                } else {
+                    console.error(`[DEBUG] Stream validation complete (method: ${validationMethod}), no action needed`);
                 }
             } catch (e) {
-                console.error(`[WARN] Failed to start stream via websocket, falling back to launch method:`, e);
-                // Fallback: try launch method (may show dialog, but better than nothing)
-                await withTimeout(
-                    execFileAsync('powershell', [
-                        '-NoProfile',
-                        '-Command',
-                        `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
-                    ]),
-                    5000,
-                    'OBS startstreaming command (fallback)'
-                );
+                // If websocket operations fail, don't launch OBS again - it's already running
+                console.error(`[WARN] Failed to validate or start stream via websocket (OBS is already running, not launching again):`, e);
             }
         } else {
-            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot use websocket. Launching OBS may show "already running" dialog.`);
-            // Fallback: try launch method (will show dialog)
-            await withTimeout(
-                execFileAsync('powershell', [
-                    '-NoProfile',
-                    '-Command',
-                    `Start-Process -FilePath '${obsExe}' -ArgumentList '--startstreaming' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
-                ]),
-                5000,
-                'OBS startstreaming command (fallback)'
-            );
+            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot validate or start stream via websocket. OBS is already running - not launching again.`);
         }
         return 'ALREADY_LIVE';
     }
