@@ -1,12 +1,13 @@
 import { listCurrentSingle, SheetKey } from '../google/list.js';
 import { createBroadcastAndBind, Privacy } from '../youtube/createBroadcast.js';
-import { execFile } from 'node:child_process';
+import { execFile, exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 type NpxEnvInfo = {
     env: NodeJS.ProcessEnv;
@@ -17,10 +18,6 @@ type NpxEnvInfo = {
 
 // Ensure the Node installation directory is on PATH so `npx` resolves even if the service account PATH is minimal
 const resolveNpxEnv = (): NpxEnvInfo => {
-    if (process.platform !== 'win32') {
-        return { env: process.env, pathKey: 'PATH' };
-    }
-
     const env = { ...process.env };
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
     const pathExtKey = Object.keys(env).find((key) => key.toLowerCase() === 'pathext') ?? 'PATHEXT';
@@ -41,32 +38,36 @@ const resolveNpxEnv = (): NpxEnvInfo => {
 
 const npxEnvInfo = resolveNpxEnv();
 const npxEnv = npxEnvInfo.env;
-const resolveNpxCommand = (): { binary: string; buildArgs: (npxArgs: string[]) => string[] } => {
-    if (process.platform !== 'win32') {
-        return { binary: 'npx', buildArgs: (args) => args };
-    }
-    const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
-    const shimPath = path.join(nodeDir, 'npx.cmd');
-    const shim = fs.existsSync(shimPath) ? shimPath : 'npx.cmd';
-    // Escape cmd.exe special characters and quote all arguments for safety
-    // Handles: spaces, &, |, <, >, ^, %, !, and trailing backslashes before quotes
-    const escapeCmdArg = (value: string): string => {
-        // Handle trailing backslashes before quotes (cmd.exe treats \ before " as escaping)
-        let escaped = value.replace(/\\+$/g, (match) => match + match);
-        // Escape internal quotes by doubling them
-        escaped = escaped.replace(/"/g, '""');
-        // Always quote to handle all special characters safely
-        return `"${escaped}"`;
-    };
-    const buildArgs = (npxArgs: string[]): string[] => {
-        // Quote shim and all arguments to handle special characters in paths, passwords, etc.
-        const cmdString = [escapeCmdArg(shim), ...npxArgs.map(escapeCmdArg)].join(' ');
-        return ['/d', '/s', '/c', cmdString];
-    };
-    return { binary: 'cmd.exe', buildArgs };
-};
-const { binary: npxBinary, buildArgs: buildNpxArgs } = resolveNpxCommand();
+
+// Get npx.cmd path and validate it exists
+const nodeDir = npxEnvInfo.nodeDir ?? path.dirname(process.execPath);
+const npxCmdPath = path.join(nodeDir, 'npx.cmd');
+const npxCommand = fs.existsSync(npxCmdPath) ? npxCmdPath : 'npx.cmd';
+
+// Validate npx.cmd exists before use
+if (!fs.existsSync(npxCommand) && npxCommand !== 'npx.cmd') {
+    console.error(`[ERROR] npx.cmd not found at ${npxCommand}`);
+}
+
 let loggedNpxDiagnostics = false;
+let npxTested = false;
+
+// Pre-flight test: verify npx.cmd works before using it for obs-cli
+const testNpxCommand = async (): Promise<void> => {
+    if (npxTested) {
+        return;
+    }
+    npxTested = true;
+    try {
+        const testCmd = `"${npxCommand}" --version`;
+        console.error(`[DEBUG] Testing npx.cmd: ${testCmd}`);
+        await execAsync(testCmd, { env: npxEnv, timeout: 2000 });
+        console.error(`[DEBUG] npx.cmd test passed`);
+    } catch (e) {
+        console.error(`[WARN] npx.cmd test failed (will continue anyway):`, e);
+        // Don't throw - we'll try anyway and fail with better error if it doesn't work
+    }
+};
 
 // Redact sensitive values from command strings for logging
 const redactSensitiveArgs = (args: string[], sensitiveKeys: string[]): string[] => {
@@ -79,8 +80,8 @@ const redactSensitiveArgs = (args: string[], sensitiveKeys: string[]): string[] 
     return redacted;
 };
 
-const logNpxDiagnostics = async (npxCommandPreview: string[], npxArgs: string[]): Promise<void> => {
-    if (loggedNpxDiagnostics || process.platform !== 'win32') {
+const logNpxDiagnostics = async (npxArgs: string[]): Promise<void> => {
+    if (loggedNpxDiagnostics) {
         return;
     }
     loggedNpxDiagnostics = true;
@@ -92,11 +93,8 @@ const logNpxDiagnostics = async (npxCommandPreview: string[], npxArgs: string[])
     }
     // Redact password from command preview for safe logging
     const redactedArgs = redactSensitiveArgs(npxArgs, ['--password']);
-    const redactedPreview = process.platform === 'win32'
-        ? buildNpxArgs(redactedArgs)
-        : redactedArgs;
     console.error(
-        `[DEBUG] npx diagnostics -> command: ${[npxBinary, ...redactedPreview].join(' ')}`
+        `[DEBUG] npx diagnostics -> command: ${npxCommand} ${redactedArgs.join(' ')}`
     );
 
     try {
@@ -298,6 +296,7 @@ export async function tick(opts: {
             try {
                 const repoRoot = path.resolve(moduleDir, '../../..');
                 const schedulerDir = path.join(repoRoot, 'scheduler');
+                // Build npx command args for obs-cli websocket StartStream
                 const npxArgs = [
                     '--yes',
                     '--prefix', schedulerDir,
@@ -307,14 +306,34 @@ export async function tick(opts: {
                     '--password', wsPass,
                     'StartStream'
                 ];
-                const subprocessArgs = buildNpxArgs(npxArgs);
-                await logNpxDiagnostics(subprocessArgs, npxArgs);
-                await withTimeout(
-                    execFileAsync(npxBinary, subprocessArgs, { env: npxEnv }),
-                    5000,
-                    'OBS websocket StartStream'
-                );
-                console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
+                await logNpxDiagnostics(npxArgs);
+
+                // Pre-flight test: verify npx works
+                await testNpxCommand();
+
+                // Build command string - exec() handles .cmd files automatically on Windows
+                const command = `"${npxCommand}" ${npxArgs.map(arg => `"${arg.replace(/"/g, '""')}"`).join(' ')}`;
+                console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
+
+                try {
+                    // Primary method: use exec() - simpler and more reliable for .cmd files
+                    await withTimeout(
+                        execAsync(command, { env: npxEnv, timeout: 5000 }),
+                        5000,
+                        'OBS websocket StartStream'
+                    );
+                    console.error(`[DEBUG] OBS startstreaming command sent via websocket`);
+                } catch (execError) {
+                    console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
+                    // Fallback: use PowerShell to invoke npx (more reliable for complex paths)
+                    const psCommand = `& "${npxCommand}" ${npxArgs.map(arg => `"${arg.replace(/"/g, '""')}"`).join(' ')}`;
+                    await withTimeout(
+                        execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
+                        5000,
+                        'OBS websocket StartStream (PowerShell fallback)'
+                    );
+                    console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
+                }
             } catch (e) {
                 console.error(`[WARN] Failed to start stream via websocket, falling back to launch method:`, e);
                 // Fallback: try launch method (may show dialog, but better than nothing)
