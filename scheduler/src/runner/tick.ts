@@ -540,6 +540,11 @@ export async function tick(opts: {
         }
     }
 
+    // Check if OBS is running (needed for validation)
+    console.error(`[INFO] Sheet ${opts.sheet} - Checking if OBS is running...`);
+    const running = await isObsRunning();
+    console.error(`[INFO] Sheet ${opts.sheet} - OBS running status: ${running}`);
+
     // Validate that OBS should be configured with the expected stream key
     if (expectedStreamKey) {
         const sheetName = opts.sheet ?? 'unknown';
@@ -599,9 +604,6 @@ export async function tick(opts: {
     }
 
     // Start OBS if not already running; the single-instance will reuse
-    console.error(`[INFO] Sheet ${opts.sheet} - Checking if OBS is running...`);
-    const running = await isObsRunning();
-    console.error(`[INFO] Sheet ${opts.sheet} - OBS running status: ${running}`);
 
     const args = [
         '--profile', profile,
