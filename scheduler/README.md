@@ -1,12 +1,20 @@
-## Scheduler (headless)
+## Scheduler (Windows, headless)
 
 Headless scheduler that reads 4 Google Calendars (Sheets A-D) and exposes a CLI to list upcoming events. Future tasks will translate events into OBS actions.
 
 ### Setup
-1. Node 20+.
-2. `cd scheduler && npm install`.
+1. Install Node 20+. You can use the repo bootstrap:
+   ```
+   powershell -ExecutionPolicy Bypass -File ..\tools\bootstrap-windows.ps1
+   ```
+   Or manual:
+   ```
+   cd scheduler
+   npm ci
+   ```
+2. Copy `env.example` (or `.env.example` if present) to `.env` and edit values.
 3. Copy `config.json.example` to `config.json` and fill in the 4 calendar IDs (for multi-sheet mode).
-4. Authenticate with Google:
+4. Authenticate with Google (Calendar read-only):
    - Recommended: Service account with access to all 4 calendars. Set `GOOGLE_APPLICATION_CREDENTIALS` to the JSON key file path.
    - Or use any ADC-supported method on your environment.
 
