@@ -2,7 +2,7 @@ import { listCurrentSingle, SheetKey, getSheetConfig } from '../google/list.js';
 import { createBroadcastAndBind, Privacy, getBroadcastStreamInfo } from '../youtube/createBroadcast.js';
 import { getOAuthClient as getOAuthClientWithToken } from '../youtube/auth.js';
 import { google } from 'googleapis';
-import { execFile, exec } from 'node:child_process';
+import { execFile, exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -616,26 +616,53 @@ export async function tick(opts: {
 
     if (!running) {
         console.error(`[DEBUG] Starting OBS (detached) with args: ${args.join(' ')}`);
-        // Launch OBS detached via PowerShell to avoid blocking on first-run dialogs/crash recovery
-        await withTimeout(
-            execFileAsync('powershell', [
-                '-NoProfile',
-                '-Command',
-                `Start-Process -FilePath '${obsExe}' -ArgumentList '${args.join(' ')}' -WorkingDirectory '${obsCwd}' -WindowStyle Minimized`
-            ]),
-            5000, // quick launch
-            'OBS launch'
-        );
+        // Launch OBS directly using spawn (avoiding PowerShell due to AccessViolationException crashes)
+        try {
+            const obsProcess = spawn(obsExe, args, {
+                cwd: obsCwd,
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: true
+            });
+            // Unref the process so Node.js can exit independently
+            obsProcess.unref();
+            console.error(`[DEBUG] OBS spawn initiated (PID: ${obsProcess.pid ?? 'unknown'})`);
+        } catch (spawnError: any) {
+            // Fallback: try using cmd.exe to launch OBS if direct spawn fails
+            console.error(`[WARN] Direct spawn failed, trying cmd.exe fallback:`, spawnError);
+            try {
+                const cmdArgs = ['/c', 'start', '/min', obsExe, ...args];
+                const cmdProcess = spawn('cmd.exe', cmdArgs, {
+                    cwd: obsCwd,
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true
+                });
+                cmdProcess.unref();
+                console.error(`[DEBUG] OBS launched via cmd.exe fallback`);
+            } catch (cmdError: any) {
+                console.error(`[ERROR] Failed to launch OBS via both spawn and cmd.exe:`, cmdError);
+                throw new Error(`OBS launch failed: ${cmdError.message}`);
+            }
+        }
 
         // Fire-and-forget: helper to dismiss crash/safe-mode dialog if it appears
+        // Note: This still uses PowerShell, but it's non-critical and will fail gracefully
         try {
             const repoRoot = path.resolve(moduleDir, '../../..');
             const dismissScript = path.join(repoRoot, 'tools', 'dismiss-obs-safemode.ps1');
-            const escapedPath = dismissScript.replace(/'/g, "''");
-            const psArg = `Start-Process -WindowStyle Hidden -FilePath powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${escapedPath}'`;
-            await execFileAsync('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', psArg]);
+            if (fs.existsSync(dismissScript)) {
+                // Try to launch via cmd.exe instead of PowerShell to avoid crashes
+                const cmdArgs = ['/c', 'start', '/min', 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', dismissScript];
+                const dismissProcess = spawn('cmd.exe', cmdArgs, {
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true
+                });
+                dismissProcess.unref();
+            }
         } catch (e) {
-            console.error('[WARN] Failed to start safe-mode dismissal helper:', e);
+            console.error('[WARN] Failed to start safe-mode dismissal helper (non-critical):', e);
         }
 
         // Poll up to ~60 seconds for OBS to appear
