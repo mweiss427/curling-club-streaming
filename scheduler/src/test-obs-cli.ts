@@ -50,47 +50,72 @@ async function testObsCli(): Promise<void> {
     const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
     const npxOptions = ['--yes', '--prefix', schedulerDir];
     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- --host "${wsHost}" --port "${wsPort}" --password "${wsPass}" GetStreamStatus --json`;
 
-    console.log(`   Command: ${command.replace(wsPass, '***REDACTED***')}`);
-    console.log('   Attempting connection...');
+    // Try both localhost and the configured host
+    const hostsToTry = [wsHost];
+    if (wsHost === '127.0.0.1') {
+        // Also try localhost explicitly
+        hostsToTry.push('localhost');
+    }
 
-    try {
-        const { stdout, stderr } = await execAsync(command, { timeout: 5000 });
-        const result = JSON.parse(stdout.trim());
-        
-        if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
-            console.log('   ❌ Connection failed: OBS websocket server is not responding');
-            console.log('   Possible issues:');
-            console.log('     - OBS websocket plugin not enabled');
-            console.log('     - Wrong port (check OBS Tools -> WebSocket Server Settings)');
-            console.log('     - Wrong password (check OBS Tools -> WebSocket Server Settings)');
-            console.log('     - OBS websocket server not started');
-            process.exit(1);
-        } else if (result.outputActive !== undefined) {
-            console.log('   ✅ Connection successful!');
-            console.log(`   Stream status: ${result.outputActive ? 'ACTIVE' : 'INACTIVE'}`);
-        } else {
-            console.log('   ⚠️  Got response but unexpected format:');
-            console.log(`   ${JSON.stringify(result, null, 2)}`);
-        }
-    } catch (e: any) {
-        if (e.stdout) {
-            try {
-                const result = JSON.parse(e.stdout.trim());
-                if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
-                    console.log('   ❌ Connection failed: OBS websocket server is not responding');
-                    console.log('   Check OBS websocket settings and ensure it\'s enabled');
-                    process.exit(1);
-                }
-            } catch {
-                // Not JSON, continue
+    let connectionSuccess = false;
+    let lastError: any = null;
+
+    for (const testHost of hostsToTry) {
+        const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- --host "${testHost}" --port "${wsPort}" --password "${wsPass}" GetStreamStatus --json`;
+
+        console.log(`   Trying host: ${testHost}`);
+        console.log(`   Command: ${command.replace(wsPass, '***REDACTED***')}`);
+
+        try {
+            const { stdout, stderr } = await execAsync(command, { timeout: 5000 });
+            const result = JSON.parse(stdout.trim());
+            
+            if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
+                console.log(`   ❌ Connection failed to ${testHost}`);
+                lastError = result;
+                continue; // Try next host
+            } else if (result.outputActive !== undefined) {
+                console.log(`   ✅ Connection successful to ${testHost}!`);
+                console.log(`   Stream status: ${result.outputActive ? 'ACTIVE' : 'INACTIVE'}`);
+                connectionSuccess = true;
+                break;
+            } else {
+                console.log('   ⚠️  Got response but unexpected format:');
+                console.log(`   ${JSON.stringify(result, null, 2)}`);
+                lastError = result;
             }
+        } catch (e: any) {
+            if (e.stdout) {
+                try {
+                    const result = JSON.parse(e.stdout.trim());
+                    if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
+                        console.log(`   ❌ Connection failed to ${testHost}`);
+                        lastError = result;
+                        continue; // Try next host
+                    }
+                } catch {
+                    // Not JSON, continue
+                }
+            }
+            lastError = e;
+            console.log(`   ❌ Connection attempt to ${testHost} failed: ${e.message || String(e)}`);
         }
-        console.log('   ❌ Test failed:');
-        console.log(`   ${e.message || String(e)}`);
-        if (e.stdout) console.log(`   stdout: ${e.stdout}`);
-        if (e.stderr) console.log(`   stderr: ${e.stderr}`);
+    }
+
+    if (!connectionSuccess) {
+        console.log('\n   ❌ All connection attempts failed');
+        console.log('   Possible issues:');
+        console.log('     - OBS websocket plugin not enabled (check OBS Tools -> WebSocket Server Settings)');
+        console.log('     - Wrong port (check OBS Tools -> WebSocket Server Settings, should be 4455)');
+        console.log('     - Wrong password (check OBS Tools -> WebSocket Server Settings)');
+        console.log('     - OBS websocket server not started');
+        console.log('     - Firewall blocking connection');
+        console.log(`   Current config: Host=${wsHost}, Port=${wsPort}`);
+        console.log('   Tip: Check OBS Tools -> WebSocket Server Settings and verify:');
+        console.log('     - "Enable WebSocket server" is checked');
+        console.log('     - Port matches (4455)');
+        console.log('     - Password matches');
         process.exit(1);
     }
 
