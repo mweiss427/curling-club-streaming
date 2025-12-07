@@ -1,13 +1,12 @@
 import 'dotenv/config';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import fs from 'node:fs';
-import path from 'node:path';
+import { getStreamStatus } from './obs/websocket.js';
 
 const execAsync = promisify(exec);
 
 async function testObsCli(): Promise<void> {
-    console.log('=== Testing obs-cli Connection ===\n');
+    console.log('=== Testing OBS Websocket Connection ===\n');
 
     const wsHost = process.env.OBS_WEBSOCKET_HOST || '127.0.0.1';
     const wsPort = process.env.OBS_WEBSOCKET_PORT || '4455';
@@ -40,16 +39,8 @@ async function testObsCli(): Promise<void> {
         console.log('   ⚠️  Could not check OBS process status');
     }
 
-    // Test 2: Test obs-cli connection
-    console.log('\n2. Testing obs-cli connection...');
-    const schedulerDir = process.cwd();
-    const nodeDir = process.execPath.replace(/\\[^\\]+$/, '');
-    const npxCmdPath = path.join(nodeDir, 'npx.cmd');
-    const npxCommand = fs.existsSync(npxCmdPath) ? npxCmdPath : 'npx.cmd';
-
-    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-    const npxOptions = ['--yes', '--prefix', schedulerDir];
-    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+    // Test 2: Test websocket connection
+    console.log('\n2. Testing OBS websocket connection...');
 
     // Try multiple hosts: configured host, localhost variants, and common network IPs
     const hostsToTry = [wsHost];
@@ -57,9 +48,10 @@ async function testObsCli(): Promise<void> {
         // Also try localhost explicitly
         hostsToTry.push('localhost');
     }
-    
+
     // Try to detect local network IP (OBS might be bound to network interface)
     // Common Windows local network IP ranges
+    console.log('   Detecting local network IPs...');
     try {
         const { stdout } = await execAsync('ipconfig', { timeout: 3000 });
         // Look for IPv4 addresses in common private ranges
@@ -68,6 +60,7 @@ async function testObsCli(): Promise<void> {
         if (matches) {
             // Add unique IPs that aren't already in the list
             const uniqueIPs = [...new Set(matches)];
+            console.log(`   Found network IPs: ${uniqueIPs.join(', ')}`);
             for (const ip of uniqueIPs) {
                 if (!hostsToTry.includes(ip)) {
                     hostsToTry.push(ip);
@@ -76,50 +69,37 @@ async function testObsCli(): Promise<void> {
         }
     } catch (e) {
         // Ignore - we'll just try the default hosts
+        console.log('   Could not detect network IPs, will try localhost only');
     }
 
     let connectionSuccess = false;
     let lastError: any = null;
 
     for (const testHost of hostsToTry) {
-        const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- --host "${testHost}" --port "${wsPort}" --password "${wsPass}" GetStreamStatus --json`;
-
-        console.log(`   Trying host: ${testHost}`);
-        console.log(`   Command: ${command.replace(wsPass, '***REDACTED***')}`);
+        console.log(`   Trying host: ${testHost}...`);
 
         try {
-            const { stdout, stderr } = await execAsync(command, { timeout: 5000 });
-            const result = JSON.parse(stdout.trim());
+            const isActive = await getStreamStatus(testHost, wsPort, wsPass);
 
-            if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
-                console.log(`   ❌ Connection failed to ${testHost}`);
-                lastError = result;
-                continue; // Try next host
-            } else if (result.outputActive !== undefined) {
+            if (isActive !== null) {
+                // Connection successful - got a response
                 console.log(`   ✅ Connection successful to ${testHost}!`);
-                console.log(`   Stream status: ${result.outputActive ? 'ACTIVE' : 'INACTIVE'}`);
+                console.log(`   Stream status: ${isActive ? 'ACTIVE' : 'INACTIVE'}`);
                 connectionSuccess = true;
                 break;
             } else {
-                console.log('   ⚠️  Got response but unexpected format:');
-                console.log(`   ${JSON.stringify(result, null, 2)}`);
-                lastError = result;
+                // Connection failed (returned null)
+                console.log(`   ❌ Connection failed to ${testHost} (websocket not responding)`);
+                lastError = new Error('Connection returned null');
             }
         } catch (e: any) {
-            if (e.stdout) {
-                try {
-                    const result = JSON.parse(e.stdout.trim());
-                    if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
-                        console.log(`   ❌ Connection failed to ${testHost}`);
-                        lastError = result;
-                        continue; // Try next host
-                    }
-                } catch {
-                    // Not JSON, continue
-                }
-            }
             lastError = e;
-            console.log(`   ❌ Connection attempt to ${testHost} failed: ${e.message || String(e)}`);
+            const errorMsg = e.message || String(e);
+            if (errorMsg.includes('CONNECTION_ERROR') || errorMsg.includes('Connection') || errorMsg.includes('ECONNREFUSED')) {
+                console.log(`   ❌ Connection failed to ${testHost}: ${errorMsg}`);
+            } else {
+                console.log(`   ❌ Error connecting to ${testHost}: ${errorMsg}`);
+            }
         }
     }
 
@@ -136,13 +116,17 @@ async function testObsCli(): Promise<void> {
         console.log('     - "Enable WebSocket server" is checked');
         console.log('     - Port matches (4455)');
         console.log('     - Password matches');
+        if (lastError) {
+            console.log(`   Last error: ${lastError.message || String(lastError)}`);
+        }
         process.exit(1);
     }
 
-    console.log('\n✅ All tests passed! obs-cli is working correctly.');
+    console.log('\n✅ All tests passed! OBS websocket connection is working correctly.');
 }
 
 testObsCli().catch((err) => {
     console.error('Test failed:', err);
     process.exit(1);
 });
+

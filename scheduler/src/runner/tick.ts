@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getStreamStatus as getStreamStatusFromWs, startStream as startStreamFromWs, stopStream, stopRecord, stopVirtualCam, stopReplayBuffer, quitObs } from '../obs/websocket.js';
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -54,22 +55,18 @@ if (!fs.existsSync(npxCommand) && npxCommand !== 'npx.cmd') {
 let loggedNpxDiagnostics = false;
 let npxTested = false;
 
-// Pre-flight test: verify npx.cmd and obs-cli command structure works
+// Pre-flight test: verify npx.cmd works (no longer needed for obs-cli, but kept for diagnostics)
 const testNpxCommand = async (schedulerDir: string): Promise<void> => {
     if (npxTested) {
         return;
     }
     npxTested = true;
     try {
-        // Test 1: Verify npx works
+        // Test: Verify npx works (for diagnostics only, not needed for obs-websocket-js)
         const testNpxCmd = `"${npxCommand}" --version`;
         console.error(`[DEBUG] Testing npx.cmd: ${testNpxCmd}`);
         await execAsync(testNpxCmd, { env: npxEnv, timeout: 2000 });
         console.error(`[DEBUG] npx.cmd test passed`);
-
-        // Test 2: Skip obs-cli connection test - it requires websocket connection even for --help
-        // Connection will be tested when actually needed (or use npm run test-obs-cli for standalone testing)
-        console.error(`[DEBUG] obs-cli will be tested on first actual use (skipping pre-flight connection test)`);
     } catch (e) {
         console.error(`[WARN] Pre-flight test failed (will continue anyway):`, e);
         // Don't throw - we'll try anyway and fail with better error if it doesn't work
@@ -140,20 +137,6 @@ async function checkStreamStatus(
     wsPass: string,
     obsStartTime?: string
 ): Promise<boolean | null> {
-    const npxOptions = ['--yes', '--prefix', schedulerDir];
-    const statusArgs = [
-        '--host', wsHost,
-        '--port', wsPort,
-        '--password', wsPass,
-        'GetStreamStatus',
-        '--json'
-    ];
-
-    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-    const statusArgsStr = statusArgs.map(escapeArg).join(' ');
-    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
-
     // Determine retry count and wait time based on when OBS was started
     let maxAttempts = 6;
     let waitTimeMs = 2000; // 2 seconds between retries
@@ -176,21 +159,21 @@ async function checkStreamStatus(
                 console.error(`[DEBUG] Retrying stream status check (attempt ${attempt + 1}/${maxAttempts})...`);
                 await sleep(waitTimeMs);
             } else {
-                console.error(`[DEBUG] Checking stream status: ${command.replace(wsPass, '***REDACTED***')}`);
+                console.error(`[DEBUG] Checking stream status via websocket (${wsHost}:${wsPort})...`);
             }
 
-            const { stdout } = await withTimeout(
-                execAsync(command, { env: npxEnv, timeout: 3000 }),
+            const isActive = await withTimeout(
+                getStreamStatusFromWs(wsHost, wsPort, wsPass),
                 3000,
                 'GetStreamStatus'
             );
 
-            // Parse JSON response
-            const status = JSON.parse(stdout.trim());
-            const isActive = status.outputActive === true;
-            console.error(`[DEBUG] Stream status: outputActive=${isActive}`);
-            return isActive;
-        } catch (e) {
+            if (isActive !== null) {
+                console.error(`[DEBUG] Stream status: outputActive=${isActive}`);
+                return isActive;
+            }
+            // If null, websocket connection failed - retry
+        } catch (e: any) {
             // Connection errors are expected if websocket isn't ready - retry or return null
             if (attempt < maxAttempts - 1) {
                 // Will retry on next iteration
@@ -313,9 +296,6 @@ export async function tick(opts: {
 
     // Helper: stop OBS gracefully using the shared PowerShell script
     async function stopObs(): Promise<void> {
-        const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-        const repoRoot = path.resolve(moduleDir, '../../..');
-        const schedulerDir = path.join(repoRoot, 'scheduler');
         const wsHost = '127.0.0.1';
         const wsPort = '4455';
         const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
@@ -323,26 +303,28 @@ export async function tick(opts: {
         // Step 1: Stop outputs via websocket if password is set
         if (wsPass) {
             console.error(`[DEBUG] Stopping OBS outputs via websocket...`);
-            const stopCommands = ['StopStream', 'StopRecord', 'StopVirtualCam', 'StopReplayBuffer'];
+            try {
+                await stopStream(wsHost, wsPort, wsPass);
+            } catch (e) {
+                console.error(`[DEBUG] StopStream failed (non-fatal):`, e);
+            }
 
-            for (const cmd of stopCommands) {
-                try {
-                    const npxOptions = ['--yes', '--prefix', schedulerDir];
-                    const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, cmd];
-                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                    const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
-                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+            try {
+                await stopRecord(wsHost, wsPort, wsPass);
+            } catch (e) {
+                console.error(`[DEBUG] StopRecord failed (non-fatal):`, e);
+            }
 
-                    await withTimeout(
-                        execAsync(command, { env: npxEnv, timeout: 2000 }),
-                        2000,
-                        `Stop ${cmd}`
-                    );
-                } catch (e) {
-                    // Ignore errors - command may fail if output isn't active
-                    console.error(`[DEBUG] ${cmd} command failed (non-fatal):`, e);
-                }
+            try {
+                await stopVirtualCam(wsHost, wsPort, wsPass);
+            } catch (e) {
+                console.error(`[DEBUG] StopVirtualCam failed (non-fatal):`, e);
+            }
+
+            try {
+                await stopReplayBuffer(wsHost, wsPort, wsPass);
+            } catch (e) {
+                console.error(`[DEBUG] StopReplayBuffer failed (non-fatal):`, e);
             }
 
             // Wait a moment for outputs to stop
@@ -350,18 +332,7 @@ export async function tick(opts: {
 
             // Step 2: Request OBS Quit via websocket
             try {
-                const npxOptions = ['--yes', '--prefix', schedulerDir];
-                const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, 'Quit'];
-                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
-                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-
-                await withTimeout(
-                    execAsync(command, { env: npxEnv, timeout: 2000 }),
-                    2000,
-                    'Quit OBS'
-                );
+                await quitObs(wsHost, wsPort, wsPass);
                 console.error(`[DEBUG] OBS Quit command sent via websocket`);
 
                 // Wait for OBS to exit
@@ -641,41 +612,27 @@ export async function tick(opts: {
             let wsReady = false;
             for (let i = 0; i < 15; i++) {
                 try {
-                    // Use a simplified check that doesn't retry internally
-                    const npxOptions = ['--yes', '--prefix', schedulerDir];
-                    const statusArgs = [
-                        '--host', wsHost,
-                        '--port', wsPort,
-                        '--password', wsPass,
-                        'GetStreamStatus',
-                        '--json'
-                    ];
-                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                    const statusArgsStr = statusArgs.map(escapeArg).join(' ');
-                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
-
-                    const { stdout } = await withTimeout(
-                        execAsync(command, { env: npxEnv, timeout: 3000 }),
+                    const isActive = await withTimeout(
+                        getStreamStatusFromWs(wsHost, wsPort, wsPass),
                         3000,
                         'GetStreamStatus (websocket readiness check)'
                     );
 
-                    // If we got a response (even if it's an error JSON), websocket is responding
-                    const result = JSON.parse(stdout.trim());
-                    if (result.status !== 'error' || result.code !== 'CONNECTION_ERROR') {
+                    // If we got a response (not null), websocket is ready
+                    if (isActive !== null) {
                         // Websocket is ready - got a valid response
                         wsReady = true;
                         console.error(`[DEBUG] OBS websocket server is ready`);
-
-                        const isActive = result.outputActive === true;
 
                         // If stream is not active, try to start it
                         if (!isActive) {
                             console.error(`[DEBUG] Stream is not active, attempting to start via websocket...`);
                             try {
-                                const startCommand = `"${npxCommand}" ${npxOptionsStr} obs-cli -- --host "${wsHost}" --port "${wsPort}" --password "${wsPass}" StartStream`;
-                                await withTimeout(execAsync(startCommand, { env: npxEnv, timeout: 5000 }), 5000, 'StartStream after OBS launch');
+                                await withTimeout(
+                                    startStreamFromWs(wsHost, wsPort, wsPass),
+                                    5000,
+                                    'StartStream after OBS launch'
+                                );
                                 console.error(`[DEBUG] StartStream command sent successfully`);
                             } catch (e) {
                                 console.error(`[WARN] Failed to send StartStream command after OBS launch:`, e);
@@ -718,7 +675,7 @@ export async function tick(opts: {
                 const wsHost = '127.0.0.1';
                 const wsPort = '4455';
 
-                // Pre-flight test: verify npx and obs-cli command structure works
+                // Pre-flight test: verify npx works (no longer testing obs-cli)
                 await testNpxCommand(schedulerDir);
 
                 // Step 1: Try to check stream status via websocket
@@ -774,25 +731,6 @@ export async function tick(opts: {
                 if (shouldStartStream) {
                     console.error(`[DEBUG] Stream is not active (validated via ${validationMethod}), starting stream...`);
 
-                    // Separate npx options from obs-cli arguments
-                    const npxOptions = ['--yes', '--prefix', schedulerDir];
-                    const obsCliArgs = [
-                        '--host', wsHost,
-                        '--port', wsPort,
-                        '--password', wsPass,
-                        'StartStream'
-                    ];
-
-                    // Combine for logging (redact password)
-                    const allArgsForLog = [...npxOptions, 'obs-cli', '--', ...obsCliArgs];
-                    await logNpxDiagnostics(allArgsForLog);
-
-                    // Build command string with -- separator
-                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                    const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
-                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-
                     // Retry StartStream command if websocket isn't ready yet
                     // OBS websocket server may take time to start after OBS launches
                     let startStreamSuccess = false;
@@ -818,12 +756,11 @@ export async function tick(opts: {
                                 console.error(`[DEBUG] Retrying StartStream command (attempt ${attempt + 1}/${maxStartAttempts})...`);
                                 await sleep(startWaitTimeMs);
                             } else {
-                                console.error(`[DEBUG] Executing npx command: ${command.replace(wsPass, '***REDACTED***')}`);
+                                console.error(`[DEBUG] Executing StartStream via websocket...`);
                             }
 
-                            // Primary method: use exec() - simpler and more reliable for .cmd files
                             await withTimeout(
-                                execAsync(command, { env: npxEnv, timeout: 5000 }),
+                                startStreamFromWs(wsHost, wsPort, wsPass),
                                 5000,
                                 'OBS websocket StartStream'
                             );
@@ -831,8 +768,8 @@ export async function tick(opts: {
                             startStreamSuccess = true;
                             break;
                         } catch (execError: any) {
-                            const errorStr = String(execError?.stderr ?? execError?.message ?? execError);
-                            const isConnectionError = errorStr.includes('CONNECTION_ERROR') || errorStr.includes('Connection error');
+                            const errorStr = String(execError?.message ?? execError);
+                            const isConnectionError = errorStr.includes('CONNECTION_ERROR') || errorStr.includes('Connection') || errorStr.includes('ECONNREFUSED');
 
                             if (isConnectionError && attempt < maxStartAttempts - 1) {
                                 // Connection error - websocket not ready yet, will retry
@@ -840,27 +777,13 @@ export async function tick(opts: {
                                 continue;
                             }
 
-                            // Try PowerShell fallback for non-connection errors or last attempt
-                            if (attempt === 0 || (!isConnectionError && attempt < maxStartAttempts - 1)) {
-                                console.error(`[WARN] exec() failed, trying PowerShell fallback:`, execError);
-                                try {
-                                    const psCommand = `& "${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                                    await withTimeout(
-                                        execFileAsync('powershell', ['-NoProfile', '-Command', psCommand], { env: npxEnv }),
-                                        5000,
-                                        'OBS websocket StartStream (PowerShell fallback)'
-                                    );
-                                    console.error(`[DEBUG] OBS startstreaming command sent via websocket (PowerShell)`);
-                                    startStreamSuccess = true;
-                                    break;
-                                } catch (psError) {
-                                    if (attempt < maxStartAttempts - 1) {
-                                        continue; // Retry on next iteration
-                                    }
-                                    throw psError; // Last attempt failed
-                                }
-                            } else {
-                                // Last attempt failed
+                            // For non-connection errors, throw immediately
+                            if (!isConnectionError) {
+                                throw execError;
+                            }
+
+                            // Last attempt failed
+                            if (attempt === maxStartAttempts - 1) {
                                 throw execError;
                             }
                         }
@@ -868,24 +791,24 @@ export async function tick(opts: {
 
                     if (!startStreamSuccess) {
                         console.error(`[ERROR] Failed to send StartStream command after ${maxStartAttempts} attempts. Websocket may not be available.`);
-                    }
-
-                    // Verify that stream actually started
-                    console.error(`[DEBUG] Waiting 3 seconds before verifying stream started...`);
-                    await sleep(3000);
-                    const verifyStatus = await checkStreamStatus(
-                        schedulerDir,
-                        wsHost,
-                        wsPort,
-                        wsPass,
-                        currentState?.obsStartTime
-                    );
-                    if (verifyStatus === true) {
-                        console.error(`[DEBUG] Stream verification successful - stream is now active`);
-                    } else if (verifyStatus === false) {
-                        console.error(`[ERROR] Stream verification failed - stream is still not active after StartStream command`);
                     } else {
-                        console.error(`[WARN] Stream verification inconclusive - could not confirm stream status after StartStream command`);
+                        // Verify that stream actually started
+                        console.error(`[DEBUG] Waiting 3 seconds before verifying stream started...`);
+                        await sleep(3000);
+                        const verifyStatus = await checkStreamStatus(
+                            schedulerDir,
+                            wsHost,
+                            wsPort,
+                            wsPass,
+                            currentState?.obsStartTime
+                        );
+                        if (verifyStatus === true) {
+                            console.error(`[DEBUG] Stream verification successful - stream is now active`);
+                        } else if (verifyStatus === false) {
+                            console.error(`[ERROR] Stream verification failed - stream is still not active after StartStream command`);
+                        } else {
+                            console.error(`[WARN] Stream verification inconclusive - could not confirm stream status after StartStream command`);
+                        }
                     }
                 } else {
                     console.error(`[DEBUG] Stream validation complete (method: ${validationMethod}), no action needed`);
