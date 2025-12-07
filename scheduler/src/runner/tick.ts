@@ -1,5 +1,5 @@
-import { listCurrentSingle, SheetKey, getSheetConfig } from '../google/list.js';
-import { createBroadcastAndBind, Privacy, getBroadcastStreamInfo } from '../youtube/createBroadcast.js';
+import { listCurrentSingle, SheetKey } from '../google/list.js';
+import { createBroadcastAndBind, Privacy } from '../youtube/createBroadcast.js';
 import { getOAuthClient as getOAuthClientWithToken } from '../youtube/auth.js';
 import { google } from 'googleapis';
 import { execFile, exec, spawn } from 'node:child_process';
@@ -208,51 +208,6 @@ async function checkStreamStatus(
     return null; // Should never reach here, but TypeScript needs this
 }
 
-// Get OBS stream service settings (including stream key) via websocket
-// Returns: stream key if found, null if can't retrieve
-async function getObsStreamKey(
-    schedulerDir: string,
-    wsHost: string,
-    wsPort: string,
-    wsPass: string
-): Promise<string | null> {
-    const npxOptions = ['--yes', '--prefix', schedulerDir];
-    const settingsArgs = [
-        '--host', wsHost,
-        '--port', wsPort,
-        '--password', wsPass,
-        'GetStreamServiceSettings',
-        '--json'
-    ];
-
-    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-    const settingsArgsStr = settingsArgs.map(escapeArg).join(' ');
-    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${settingsArgsStr}`;
-
-    try {
-        const { stdout } = await withTimeout(
-            execAsync(command, { env: npxEnv, timeout: 3000 }),
-            3000,
-            'GetStreamServiceSettings'
-        );
-
-        // Parse JSON response
-        const settings = JSON.parse(stdout.trim());
-        // Stream key is typically in settings.streamServiceSettings.key or settings.settings.key
-        const streamKey = settings.streamServiceSettings?.key ?? settings.settings?.key ?? settings.key;
-        if (streamKey && typeof streamKey === 'string' && streamKey.length > 0) {
-            console.error(`[DEBUG] OBS stream key retrieved via websocket: ${streamKey.substring(0, 10)}...`);
-            return streamKey;
-        }
-        console.error(`[WARN] Stream key not found in OBS settings response`);
-        return null;
-    } catch (e) {
-        console.error(`[WARN] Failed to get OBS stream key via websocket:`, e);
-        return null;
-    }
-}
-
 // Check if YouTube broadcast is actually live via YouTube API
 // Returns: true if live, false if not live, null if unknown (can't check)
 async function checkYouTubeStreamStatus(
@@ -369,7 +324,7 @@ export async function tick(opts: {
     }
 
     // Simple state persistence to ensure one broadcast per event
-    type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string; expectedStreamKey?: string };
+    type TickState = { eventKey: string; broadcastId: string; obsStartTime?: string };
     const moduleDir = path.dirname(fileURLToPath(import.meta.url));
     const stateDir = path.resolve(moduleDir, '../../.state');
     const statePath = path.join(stateDir, `current-${opts.sheet ?? 'default'}.json`);
@@ -442,24 +397,9 @@ export async function tick(opts: {
             console.error(`[DEBUG] Broadcast title verified - contains sheet identifier: ${expectedSheetInTitle}`);
         }
 
-        // Look up the stream key from the broadcast
-        console.error(`[DEBUG] Looking up stream key for broadcast ${broadcastId}...`);
-        const streamInfo = await getBroadcastStreamInfo(
-            broadcastId,
-            opts.credentialsPath,
-            opts.tokenPath
-        );
-        if (streamInfo?.streamKey) {
-            expectedStreamKey = streamInfo.streamKey;
-            console.error(`[DEBUG] Broadcast is bound to stream key: ${expectedStreamKey}`);
-        } else {
-            console.error(`[WARN] Could not determine stream key from broadcast ${broadcastId}`);
-        }
-
-        writeState({ eventKey, broadcastId, expectedStreamKey });
+        writeState({ eventKey, broadcastId });
     } else {
         broadcastId = st.broadcastId;
-        expectedStreamKey = st.expectedStreamKey;
         console.error(`[DEBUG] Using existing broadcast for event: ${broadcastId}`);
 
         // Verify existing broadcast belongs to this sheet by checking its title
@@ -519,39 +459,10 @@ export async function tick(opts: {
             );
             console.error(`[DEBUG] New broadcast created successfully: ${newBroadcastId}`);
 
-            // Look up the stream key from the new broadcast
-            console.error(`[DEBUG] Looking up stream key for broadcast ${newBroadcastId}...`);
-            const streamInfo = await getBroadcastStreamInfo(
-                newBroadcastId,
-                opts.credentialsPath,
-                opts.tokenPath
-            );
-            if (streamInfo?.streamKey) {
-                expectedStreamKey = streamInfo.streamKey;
-                console.error(`[DEBUG] Broadcast is bound to stream key: ${expectedStreamKey}`);
-            } else {
-                console.error(`[WARN] Could not determine stream key from broadcast ${newBroadcastId}`);
-            }
-
             broadcastId = newBroadcastId;
-            writeState({ eventKey, broadcastId, expectedStreamKey });
+            writeState({ eventKey, broadcastId });
         }
 
-        // If we don't have the stream key in state, look it up
-        if (!expectedStreamKey) {
-            console.error(`[DEBUG] Stream key not in state, looking up from broadcast...`);
-            const streamInfo = await getBroadcastStreamInfo(
-                broadcastId,
-                opts.credentialsPath,
-                opts.tokenPath
-            );
-            if (streamInfo?.streamKey) {
-                expectedStreamKey = streamInfo.streamKey;
-                console.error(`[DEBUG] Found stream key: ${expectedStreamKey}`);
-                // Update state with the stream key
-                writeState({ ...st, expectedStreamKey });
-            }
-        }
     }
 
     // Check if OBS is running (needed for validation)
@@ -559,63 +470,6 @@ export async function tick(opts: {
     const running = await isObsRunning();
     console.error(`[INFO] Sheet ${opts.sheet} - OBS running status: ${running}`);
 
-    // Validate that OBS should be configured with the expected stream key
-    if (expectedStreamKey) {
-        const sheetName = opts.sheet ?? 'unknown';
-        console.error(`[INFO] ===== Stream Configuration for Sheet ${sheetName} =====`);
-        console.error(`[INFO] Broadcast ID: ${broadcastId}`);
-        console.error(`[INFO] Expected stream key: ${expectedStreamKey}`);
-        console.error(`[INFO] OBS config location: {OBS_DATA_DIR}/basic/profiles/${profile}/service.json -> settings.key`);
-
-        // Pre-flight check: Verify OBS stream key via websocket if OBS is running
-        const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
-        if (wsPass && running) {
-            const repoRoot = path.resolve(moduleDir, '../../..');
-            const schedulerDir = path.join(repoRoot, 'scheduler');
-            const wsHost = '127.0.0.1';
-            const wsPort = '4455';
-
-            console.error(`[INFO] Pre-flight check: Verifying OBS stream key matches expected...`);
-            const obsStreamKey = await getObsStreamKey(schedulerDir, wsHost, wsPort, wsPass);
-
-            if (obsStreamKey) {
-                if (obsStreamKey === expectedStreamKey) {
-                    console.error(`[INFO] ✅ OBS stream key matches expected - configuration is correct!`);
-                } else {
-                    console.error(`[ERROR] ❌ CRITICAL MISMATCH: OBS is configured with stream key "${obsStreamKey.substring(0, 20)}..." but expected "${expectedStreamKey.substring(0, 20)}..."`);
-                    console.error(`[ERROR] Sheet ${sheetName} will stream to the WRONG YouTube broadcast!`);
-                    console.error(`[ERROR] Fix: Update OBS stream settings to use the expected stream key above.`);
-                    console.error(`[ERROR] OBS Settings → Stream → Service: YouTube - RTMPS → Stream Key`);
-                }
-            } else {
-                console.error(`[WARN] Could not retrieve OBS stream key via websocket. Manual verification required.`);
-            }
-        } else if (!wsPass) {
-            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set - cannot verify OBS stream key automatically.`);
-            console.error(`[WARN] Manual verification required: Check OBS settings match expected stream key above.`);
-        } else if (!running) {
-            console.error(`[INFO] OBS not running yet - will verify stream key after OBS starts.`);
-        }
-
-        // Check if expected stream key matches config.json for this sheet
-        try {
-            const sheetConfig = getSheetConfig(opts.sheet);
-            if (sheetConfig?.streamKey && sheetConfig.streamKey !== expectedStreamKey) {
-                console.error(`[ERROR] MISMATCH: Expected stream key "${expectedStreamKey}" does not match config.json streamKey "${sheetConfig.streamKey}" for Sheet ${sheetName}`);
-                console.error(`[ERROR] The broadcast is bound to a different stream than configured for this sheet.`);
-                console.error(`[ERROR] This may cause Sheet ${sheetName} to stream to the wrong YouTube broadcast.`);
-            } else if (sheetConfig?.streamKey && sheetConfig.streamKey === expectedStreamKey) {
-                console.error(`[INFO] Stream key matches config.json for Sheet ${sheetName} - configuration is correct.`);
-            }
-        } catch (e) {
-            console.error(`[DEBUG] Could not verify stream key against config.json (non-fatal):`, e);
-        }
-
-        console.error(`[INFO] ============================================================`);
-    } else {
-        console.error(`[WARN] Could not determine expected stream key for broadcast ${broadcastId}. Cannot validate OBS configuration.`);
-        console.error(`[WARN] Sheet ${opts.sheet} may not stream to the correct broadcast.`);
-    }
 
     // Start OBS if not already running; the single-instance will reuse
 
@@ -711,22 +565,6 @@ export async function tick(opts: {
                         // Got a response (true or false), websocket is ready
                         wsReady = true;
                         console.error(`[DEBUG] OBS websocket server is ready`);
-
-                        // Verify OBS stream key matches expected (if we have expectedStreamKey)
-                        if (expectedStreamKey) {
-                            console.error(`[INFO] Sheet ${opts.sheet} - Verifying OBS stream key after startup...`);
-                            const obsStreamKey = await getObsStreamKey(schedulerDir, wsHost, wsPort, wsPass);
-                            if (obsStreamKey) {
-                                if (obsStreamKey === expectedStreamKey) {
-                                    console.error(`[INFO] ✅ Sheet ${opts.sheet} - OBS stream key verified correctly after startup!`);
-                                } else {
-                                    console.error(`[ERROR] ❌ Sheet ${opts.sheet} - OBS stream key "${obsStreamKey.substring(0, 20)}..." does NOT match expected "${expectedStreamKey.substring(0, 20)}..."`);
-                                    console.error(`[ERROR] Sheet ${opts.sheet} will stream to the WRONG broadcast! Fix OBS settings immediately.`);
-                                }
-                            } else {
-                                console.error(`[WARN] Could not retrieve OBS stream key for verification`);
-                            }
-                        }
 
                         // If stream is not active, try to start it
                         if (status === false) {
