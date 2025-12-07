@@ -15,6 +15,7 @@
         "yt-auth-init": "tsx src/cli.ts yt-auth-init",
         "yt-auth-status": "tsx src/cli.ts yt-auth-status",
         "tick-loop": "tsx src/tick-loop.ts",
+        "test-obs-cli": "tsx src/test-obs-cli.ts",
         "yt-create": "tsx src/cli.ts yt-create",
         "lint": "eslint .",
         "test": "vitest run",

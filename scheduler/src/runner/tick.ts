@@ -67,13 +67,9 @@ const testNpxCommand = async (schedulerDir: string): Promise<void> => {
         await execAsync(testNpxCmd, { env: npxEnv, timeout: 2000 });
         console.error(`[DEBUG] npx.cmd test passed`);
 
-        // Test 2: Verify obs-cli can be invoked with proper -- separator
-        // Use --help which doesn't require websocket connection
-        const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-        const testObsCliCmd = `"${npxCommand}" ${escapeArg('--yes')} ${escapeArg('--prefix')} ${escapeArg(schedulerDir)} obs-cli -- --help`;
-        console.error(`[DEBUG] Testing obs-cli command structure: ${testObsCliCmd}`);
-        await execAsync(testObsCliCmd, { env: npxEnv, timeout: 5000 });
-        console.error(`[DEBUG] obs-cli command structure test passed`);
+        // Test 2: Skip obs-cli connection test - it requires websocket connection even for --help
+        // Connection will be tested when actually needed (or use npm run test-obs-cli for standalone testing)
+        console.error(`[DEBUG] obs-cli will be tested on first actual use (skipping pre-flight connection test)`);
     } catch (e) {
         console.error(`[WARN] Pre-flight test failed (will continue anyway):`, e);
         // Don't throw - we'll try anyway and fail with better error if it doesn't work
@@ -658,7 +654,7 @@ export async function tick(opts: {
                     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
                     const statusArgsStr = statusArgs.map(escapeArg).join(' ');
                     const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
-                    
+
                     const { stdout } = await withTimeout(
                         execAsync(command, { env: npxEnv, timeout: 3000 }),
                         3000,
@@ -671,9 +667,9 @@ export async function tick(opts: {
                         // Websocket is ready - got a valid response
                         wsReady = true;
                         console.error(`[DEBUG] OBS websocket server is ready`);
-                        
+
                         const isActive = result.outputActive === true;
-                        
+
                         // If stream is not active, try to start it
                         if (!isActive) {
                             console.error(`[DEBUG] Stream is not active, attempting to start via websocket...`);
