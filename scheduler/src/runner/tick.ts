@@ -337,10 +337,24 @@ export async function tick(opts: {
     }
 
     // Helper: is OBS running?
+    // Use tasklist (built into Windows) instead of PowerShell to avoid crashes
     async function isObsRunning(): Promise<boolean> {
         try {
-            const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', "Get-Process obs64 -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.Id }"]);
-            return stdout.trim().length > 0;
+            // Try tasklist first (Windows built-in, no PowerShell needed)
+            const { stdout } = await execFileAsync('tasklist', ['/FI', 'IMAGENAME eq obs64.exe', '/FO', 'CSV', '/NH'], { timeout: 2000 });
+            // If tasklist finds the process, stdout will contain "obs64.exe"
+            const found = stdout.toLowerCase().includes('obs64.exe');
+            if (found) {
+                return true;
+            }
+            // Fallback: try PowerShell if tasklist doesn't work (but this may crash)
+            try {
+                const { stdout: psStdout } = await execFileAsync('powershell', ['-NoProfile', '-Command', "Get-Process obs64 -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.Id }"], { timeout: 2000 });
+                return psStdout.trim().length > 0;
+            } catch {
+                // PowerShell failed (expected on this machine), but tasklist already returned false
+                return false;
+            }
         } catch {
             return false;
         }
