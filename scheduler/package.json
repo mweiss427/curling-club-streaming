@@ -16,6 +16,7 @@
         "yt-auth-status": "tsx src/cli.ts yt-auth-status",
         "tick-loop": "tsx src/tick-loop.ts",
         "validate-setup": "tsx src/validate-setup.ts",
+        "diagnose": "tsx src/diagnose-sheet.ts",
         "yt-create": "tsx src/cli.ts yt-create",
         "lint": "eslint .",
         "test": "vitest run",
