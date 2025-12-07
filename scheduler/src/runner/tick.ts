@@ -328,7 +328,7 @@ export async function tick(opts: {
         if (wsPass) {
             console.error(`[DEBUG] Stopping OBS outputs via websocket...`);
             const stopCommands = ['StopStream', 'StopRecord', 'StopVirtualCam', 'StopReplayBuffer'];
-            
+
             for (const cmd of stopCommands) {
                 try {
                     const npxOptions = ['--yes', '--prefix', schedulerDir];
@@ -337,7 +337,7 @@ export async function tick(opts: {
                     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
                     const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
                     const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                    
+
                     await withTimeout(
                         execAsync(command, { env: npxEnv, timeout: 2000 }),
                         2000,
@@ -360,14 +360,14 @@ export async function tick(opts: {
                 const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
                 const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
                 const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                
+
                 await withTimeout(
                     execAsync(command, { env: npxEnv, timeout: 2000 }),
                     2000,
                     'Quit OBS'
                 );
                 console.error(`[DEBUG] OBS Quit command sent via websocket`);
-                
+
                 // Wait for OBS to exit
                 await sleep(2000);
             } catch (e) {
@@ -636,28 +636,50 @@ export async function tick(opts: {
             const wsHost = '127.0.0.1';
             const wsPort = '4455';
 
-            console.error(`[DEBUG] Waiting for OBS websocket server to be ready...`);
-            // Wait up to 20 seconds for websocket to be ready (40 attempts * 500ms)
+            // Give OBS websocket server time to start up (5-10 seconds initial wait)
+            console.error(`[DEBUG] Waiting 5 seconds for OBS websocket server to initialize...`);
+            await sleep(5000);
+
+            console.error(`[DEBUG] Checking if OBS websocket server is ready...`);
+            // Wait up to 30 seconds for websocket to be ready (15 attempts * 2 seconds)
             let wsReady = false;
-            for (let i = 0; i < 40; i++) {
+            for (let i = 0; i < 15; i++) {
                 try {
-                    const status = await checkStreamStatus(schedulerDir, wsHost, wsPort, wsPass, obsStartTime);
-                    if (status !== null) {
-                        // Got a response (true or false), websocket is ready
+                    // Use a simplified check that doesn't retry internally
+                    const npxOptions = ['--yes', '--prefix', schedulerDir];
+                    const statusArgs = [
+                        '--host', wsHost,
+                        '--port', wsPort,
+                        '--password', wsPass,
+                        'GetStreamStatus',
+                        '--json'
+                    ];
+                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                    const statusArgsStr = statusArgs.map(escapeArg).join(' ');
+                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${statusArgsStr}`;
+                    
+                    const { stdout } = await withTimeout(
+                        execAsync(command, { env: npxEnv, timeout: 3000 }),
+                        3000,
+                        'GetStreamStatus (websocket readiness check)'
+                    );
+
+                    // If we got a response (even if it's an error JSON), websocket is responding
+                    const result = JSON.parse(stdout.trim());
+                    if (result.status !== 'error' || result.code !== 'CONNECTION_ERROR') {
+                        // Websocket is ready - got a valid response
                         wsReady = true;
                         console.error(`[DEBUG] OBS websocket server is ready`);
-
+                        
+                        const isActive = result.outputActive === true;
+                        
                         // If stream is not active, try to start it
-                        if (status === false) {
+                        if (!isActive) {
                             console.error(`[DEBUG] Stream is not active, attempting to start via websocket...`);
                             try {
-                                const npxOptions = ['--yes', '--prefix', schedulerDir];
-                                const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, 'StartStream'];
-                                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
-                                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
-                                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
-                                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
-                                await withTimeout(execAsync(command, { env: npxEnv, timeout: 5000 }), 5000, 'StartStream after OBS launch');
+                                const startCommand = `"${npxCommand}" ${npxOptionsStr} obs-cli -- --host "${wsHost}" --port "${wsPort}" --password "${wsPass}" StartStream`;
+                                await withTimeout(execAsync(startCommand, { env: npxEnv, timeout: 5000 }), 5000, 'StartStream after OBS launch');
                                 console.error(`[DEBUG] StartStream command sent successfully`);
                             } catch (e) {
                                 console.error(`[WARN] Failed to send StartStream command after OBS launch:`, e);
@@ -667,13 +689,19 @@ export async function tick(opts: {
                         }
                         break;
                     }
-                } catch (e) {
-                    // Connection error - websocket not ready yet, continue waiting
+                } catch (e: any) {
+                    // Connection error or timeout - websocket not ready yet
+                    if (i < 14) {
+                        console.error(`[DEBUG] Websocket not ready yet (attempt ${i + 1}/15), waiting 2 seconds...`);
+                    }
                 }
-                await sleep(500);
+                // Wait 2 seconds between attempts (instead of 500ms)
+                if (i < 14) {
+                    await sleep(2000);
+                }
             }
             if (!wsReady) {
-                console.error(`[WARN] OBS websocket server not ready after 20 seconds. Stream may not have started automatically.`);
+                console.error(`[WARN] OBS websocket server not ready after 35 seconds (5s initial + 30s retries). Stream may not have started automatically.`);
             }
         } else {
             console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot verify stream started after OBS launch`);
