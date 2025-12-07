@@ -582,10 +582,29 @@ export async function tick(opts: {
         }
 
         // Poll up to ~60 seconds for OBS to appear
+        let obsProcessDetected = false;
         for (let i = 0; i < 20; i++) {
-            if (await isObsRunning()) break;
+            if (await isObsRunning()) {
+                obsProcessDetected = true;
+                break;
+            }
             await sleep(3000);
         }
+
+        if (!obsProcessDetected) {
+            console.error(`[ERROR] OBS process did not appear after 60 seconds. OBS may have failed to start.`);
+            throw new Error('OBS process did not start');
+        }
+
+        console.error(`[DEBUG] OBS process detected`);
+
+        // Verify OBS is still running after a short delay (catches immediate crashes)
+        await sleep(2000);
+        if (!(await isObsRunning())) {
+            console.error(`[ERROR] OBS process disappeared shortly after starting. OBS may have crashed.`);
+            throw new Error('OBS process crashed after startup');
+        }
+
         console.error(`[DEBUG] OBS started (detached)`);
 
         // Track when OBS was started for better websocket retry logic
@@ -611,6 +630,12 @@ export async function tick(opts: {
             // Wait up to 30 seconds for websocket to be ready (15 attempts * 2 seconds)
             let wsReady = false;
             for (let i = 0; i < 15; i++) {
+                // Check if OBS is still running before attempting connection
+                if (!(await isObsRunning())) {
+                    console.error(`[ERROR] OBS process is no longer running. OBS may have crashed.`);
+                    throw new Error('OBS process crashed during websocket initialization');
+                }
+
                 try {
                     const isActive = await withTimeout(
                         getStreamStatusFromWs(wsHost, wsPort, wsPass),
@@ -644,8 +669,17 @@ export async function tick(opts: {
                     }
                 } catch (e: any) {
                     // Connection error or timeout - websocket not ready yet
-                    if (i < 14) {
-                        console.error(`[DEBUG] Websocket not ready yet (attempt ${i + 1}/15), waiting 2 seconds...`);
+                    const errorMsg = e.message || String(e);
+                    if (errorMsg.includes('ECONNREFUSED')) {
+                        // Port not listening - OBS may not have websocket enabled or still starting
+                        if (i < 14) {
+                            console.error(`[DEBUG] Websocket not ready yet (attempt ${i + 1}/15) - connection refused, waiting 2 seconds...`);
+                        }
+                    } else {
+                        // Other error
+                        if (i < 14) {
+                            console.error(`[DEBUG] Websocket not ready yet (attempt ${i + 1}/15) - ${errorMsg}, waiting 2 seconds...`);
+                        }
                     }
                 }
                 // Wait 2 seconds between attempts (instead of 500ms)
@@ -654,7 +688,14 @@ export async function tick(opts: {
                 }
             }
             if (!wsReady) {
-                console.error(`[WARN] OBS websocket server not ready after 35 seconds (5s initial + 30s retries). Stream may not have started automatically.`);
+                // Final check: is OBS still running?
+                const stillRunning = await isObsRunning();
+                if (!stillRunning) {
+                    console.error(`[ERROR] OBS websocket server not ready and OBS process is no longer running. OBS may have crashed.`);
+                    throw new Error('OBS process crashed - websocket never became available');
+                } else {
+                    console.error(`[WARN] OBS websocket server not ready after 35 seconds (5s initial + 30s retries). OBS is running but websocket may not be enabled. Check OBS Tools -> WebSocket Server Settings.`);
+                }
             }
         } else {
             console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot verify stream started after OBS launch`);
