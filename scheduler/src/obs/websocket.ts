@@ -4,22 +4,27 @@ let obsClient: OBSWebSocket | null = null;
 let connectionPromise: Promise<OBSWebSocket> | null = null;
 
 async function getObsConnection(host: string, port: string, password: string): Promise<OBSWebSocket> {
-    // Reuse existing connection if available and identified
-    if (obsClient) {
-        try {
-            // Check if connection is still valid by checking identified property
-            if ((obsClient as any).identified !== false) {
-                return obsClient;
-            }
-        } catch {
-            // Connection is invalid, create new one
-            obsClient = null;
-        }
-    }
-
     // Reuse connection promise if one is in progress
     if (connectionPromise) {
         return connectionPromise;
+    }
+
+    // Try to reuse existing connection if available
+    if (obsClient) {
+        // Check if connection is still valid - if identified property exists and is true
+        const isIdentified = (obsClient as any).identified;
+        if (isIdentified === true || isIdentified === undefined) {
+            // Connection appears valid, try to use it
+            // If it fails, we'll create a new one below
+            try {
+                // Test connection with a simple call (this will throw if disconnected)
+                await obsClient.call('GetVersion');
+                return obsClient;
+            } catch {
+                // Connection is invalid, create new one
+                obsClient = null;
+            }
+        }
     }
 
     // Create new connection
