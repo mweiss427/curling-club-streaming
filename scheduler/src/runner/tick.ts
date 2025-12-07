@@ -319,8 +319,89 @@ export async function tick(opts: {
     async function stopObs(): Promise<void> {
         const moduleDir = path.dirname(fileURLToPath(import.meta.url));
         const repoRoot = path.resolve(moduleDir, '../../..');
-        const stopScript = path.join(repoRoot, 'tools', 'stop-obs.ps1');
-        await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', stopScript]);
+        const schedulerDir = path.join(repoRoot, 'scheduler');
+        const wsHost = '127.0.0.1';
+        const wsPort = '4455';
+        const wsPass = process.env.OBS_WEBSOCKET_PASSWORD;
+
+        // Step 1: Stop outputs via websocket if password is set
+        if (wsPass) {
+            console.error(`[DEBUG] Stopping OBS outputs via websocket...`);
+            const stopCommands = ['StopStream', 'StopRecord', 'StopVirtualCam', 'StopReplayBuffer'];
+            
+            for (const cmd of stopCommands) {
+                try {
+                    const npxOptions = ['--yes', '--prefix', schedulerDir];
+                    const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, cmd];
+                    const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                    const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                    const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
+                    const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                    
+                    await withTimeout(
+                        execAsync(command, { env: npxEnv, timeout: 2000 }),
+                        2000,
+                        `Stop ${cmd}`
+                    );
+                } catch (e) {
+                    // Ignore errors - command may fail if output isn't active
+                    console.error(`[DEBUG] ${cmd} command failed (non-fatal):`, e);
+                }
+            }
+
+            // Wait a moment for outputs to stop
+            await sleep(1000);
+
+            // Step 2: Request OBS Quit via websocket
+            try {
+                const npxOptions = ['--yes', '--prefix', schedulerDir];
+                const obsCliArgs = ['--host', wsHost, '--port', wsPort, '--password', wsPass, 'Quit'];
+                const escapeArg = (arg: string): string => `"${arg.replace(/"/g, '""')}"`;
+                const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
+                const obsCliArgsStr = obsCliArgs.map(escapeArg).join(' ');
+                const command = `"${npxCommand}" ${npxOptionsStr} obs-cli -- ${obsCliArgsStr}`;
+                
+                await withTimeout(
+                    execAsync(command, { env: npxEnv, timeout: 2000 }),
+                    2000,
+                    'Quit OBS'
+                );
+                console.error(`[DEBUG] OBS Quit command sent via websocket`);
+                
+                // Wait for OBS to exit
+                await sleep(2000);
+            } catch (e) {
+                console.error(`[WARN] Failed to send Quit command via websocket:`, e);
+            }
+        } else {
+            console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set - cannot stop via websocket`);
+        }
+
+        // Step 3: Fallback - kill process using taskkill (Windows built-in, no PowerShell)
+        // Check if OBS is still running
+        let obsStillRunning = true;
+        for (let i = 0; i < 10; i++) {
+            if (!(await isObsRunning())) {
+                obsStillRunning = false;
+                break;
+            }
+            await sleep(1000);
+        }
+
+        if (obsStillRunning) {
+            console.error(`[DEBUG] OBS still running, attempting to terminate process...`);
+            try {
+                // Use taskkill (Windows built-in) instead of PowerShell
+                // First try graceful termination (/T sends to child processes too)
+                await execFileAsync('taskkill', ['/F', '/IM', 'obs64.exe', '/T'], { timeout: 5000 });
+                console.error(`[DEBUG] OBS process terminated via taskkill`);
+            } catch (e) {
+                console.error(`[WARN] Failed to terminate OBS process:`, e);
+                // Process may have already exited
+            }
+        } else {
+            console.error(`[DEBUG] OBS exited successfully`);
+        }
     }
 
     // Simple state persistence to ensure one broadcast per event
