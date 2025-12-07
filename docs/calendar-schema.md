@@ -37,50 +37,14 @@ Add a `scheduler/config.json` file with the following shape:
 {
   "timezone": "America/Chicago",
   "sheets": {
-    "A": { 
-      "calendarId": "...",
-      "streamId": "stream-id-for-sheet-a",
-      "streamKey": "stream-key-for-sheet-a"
-    },
-    "B": { 
-      "calendarId": "...",
-      "streamId": "stream-id-for-sheet-b",
-      "streamKey": "stream-key-for-sheet-b"
-    },
-    "C": { 
-      "calendarId": "...",
-      "streamId": "stream-id-for-sheet-c",
-      "streamKey": "stream-key-for-sheet-c"
-    },
-    "D": { 
-      "calendarId": "...",
-      "streamId": "stream-id-for-sheet-d",
-      "streamKey": "stream-key-for-sheet-d"
-    }
+    "A": { "calendarId": "...", "obs": { "url": "ws://127.0.0.1:4455", "password": "..." } },
+    "B": { "calendarId": "...", "obs": { "url": "ws://127.0.0.1:4456", "password": "..." } },
+    "C": { "calendarId": "...", "obs": { "url": "ws://127.0.0.1:4457", "password": "..." } },
+    "D": { "calendarId": "...", "obs": { "url": "ws://127.0.0.1:4458", "password": "..." } }
   }
 }
 ```
 
-**Required fields:**
-- `calendarId`: Google Calendar ID for each sheet
-
-**Optional fields (per sheet):**
-- `streamId`: YouTube Live Stream ID (preferred over streamKey) - used when creating new broadcasts
-- `streamKey`: YouTube Live Stream key/name (alternative to streamId) - used when creating new broadcasts
-
-**Broadcast-based routing:**
-The system uses broadcast-based routing to ensure each sheet streams to the correct YouTube stream:
-
-1. When a calendar event starts, a YouTube broadcast is created for that event
-2. The broadcast is bound to a stream (using `streamId`/`streamKey` from config.json or environment variables)
-3. The system looks up which stream the broadcast is bound to and extracts the stream key
-4. This stream key is stored in state and logged for verification
-5. OBS must be configured with this stream key to stream to the correct broadcast
-
-**Important:** 
-- Each sheet should have its own unique `streamId` or `streamKey` in `config.json` (or per-machine environment variables)
-- The broadcast is the source of truth - it determines which stream to use
-- After creating a broadcast, the system logs the expected stream key - verify OBS is configured with this key
-- If `streamId`/`streamKey` is not specified in `config.json`, the system falls back to environment variables `YOUTUBE_STREAM_ID` or `YOUTUBE_STREAM_KEY`
+Only `calendarId` is required for the initial list-events CLI; `obs` fields will be used in a later task.
 
 
