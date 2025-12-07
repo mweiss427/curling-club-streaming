@@ -51,11 +51,31 @@ async function testObsCli(): Promise<void> {
     const npxOptions = ['--yes', '--prefix', schedulerDir];
     const npxOptionsStr = npxOptions.map(escapeArg).join(' ');
 
-    // Try both localhost and the configured host
+    // Try multiple hosts: configured host, localhost variants, and common network IPs
     const hostsToTry = [wsHost];
     if (wsHost === '127.0.0.1') {
         // Also try localhost explicitly
         hostsToTry.push('localhost');
+    }
+    
+    // Try to detect local network IP (OBS might be bound to network interface)
+    // Common Windows local network IP ranges
+    try {
+        const { stdout } = await execAsync('ipconfig', { timeout: 3000 });
+        // Look for IPv4 addresses in common private ranges
+        const ipv4Regex = /\b(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+)\b/g;
+        const matches = stdout.match(ipv4Regex);
+        if (matches) {
+            // Add unique IPs that aren't already in the list
+            const uniqueIPs = [...new Set(matches)];
+            for (const ip of uniqueIPs) {
+                if (!hostsToTry.includes(ip)) {
+                    hostsToTry.push(ip);
+                }
+            }
+        }
+    } catch (e) {
+        // Ignore - we'll just try the default hosts
     }
 
     let connectionSuccess = false;
@@ -70,7 +90,7 @@ async function testObsCli(): Promise<void> {
         try {
             const { stdout, stderr } = await execAsync(command, { timeout: 5000 });
             const result = JSON.parse(stdout.trim());
-            
+
             if (result.status === 'error' && result.code === 'CONNECTION_ERROR') {
                 console.log(`   ❌ Connection failed to ${testHost}`);
                 lastError = result;
