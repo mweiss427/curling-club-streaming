@@ -409,10 +409,12 @@ export async function tick(opts: {
     const st = readState();
 
     // Construct a friendly title using event time and sheet
+    // CRITICAL: Always use opts.sheet (configured sheet for this computer), not current.sheet from calendar
+    // This ensures Sheet A's computer always creates broadcasts for Sheet A, regardless of calendar event data
     const start = new Date(current.start);
     const date = start.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
     const time = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    const sheetTag = current.sheet ? ` - Sheet ${current.sheet}` : '';
+    const sheetTag = ` - Sheet ${opts.sheet}`;
     const title = `${current.summary ?? 'Untitled Event'}${sheetTag} - ${date} - ${time}`;
     const description = current.description ?? current.summary ?? undefined;
 
@@ -438,13 +440,46 @@ export async function tick(opts: {
         );
         console.error(`[DEBUG] Broadcast created successfully: ${broadcastId}`);
 
-        // Verify broadcast title includes correct sheet identifier
+        // Verify the actual broadcast title from YouTube API (not just our local variable)
         const expectedSheetInTitle = `Sheet ${opts.sheet}`;
-        if (!title.includes(expectedSheetInTitle)) {
-            console.error(`[ERROR] Broadcast title "${title}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
-            console.error(`[ERROR] This may indicate a configuration issue. Broadcast should be for Sheet ${opts.sheet}.`);
-        } else {
-            console.error(`[DEBUG] Broadcast title verified - contains sheet identifier: ${expectedSheetInTitle}`);
+        try {
+            const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+            const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+            const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+            const youtube = google.youtube('v3');
+
+            const verifyResp = await youtube.liveBroadcasts.list({
+                auth,
+                part: ['snippet'],
+                id: [broadcastId],
+                maxResults: 1
+            });
+
+            const actualBroadcast = verifyResp.data.items?.[0];
+            if (actualBroadcast) {
+                const actualTitle = actualBroadcast.snippet?.title ?? '';
+
+                // Verify sheet identifier is present
+                if (!actualTitle.includes(expectedSheetInTitle)) {
+                    console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+                    console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
+                    console.error(`[ERROR] This may indicate a configuration issue. Broadcast should be for Sheet ${opts.sheet}.`);
+                } else if (actualTitle !== title) {
+                    console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
+                    console.error(`[WARN] Title contains correct sheet identifier but format differs`);
+                } else {
+                    console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches expected: "${actualTitle}"`);
+                    console.error(`[DEBUG] Sheet identifier verified: ${expectedSheetInTitle}`);
+                }
+            } else {
+                console.error(`[WARN] Could not fetch broadcast ${broadcastId} for title verification (non-fatal)`);
+            }
+        } catch (verifyError: any) {
+            console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
+            // Fallback: at least verify our local title variable
+            if (!title.includes(expectedSheetInTitle)) {
+                console.error(`[ERROR] Local title "${title}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+            }
         }
 
         writeState({ eventKey, broadcastId });
@@ -524,6 +559,37 @@ export async function tick(opts: {
             );
             console.error(`[DEBUG] New broadcast created successfully: ${newBroadcastId}`);
 
+            // Verify the actual broadcast title from YouTube API
+            const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+            try {
+                const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+                const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+                const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+                const youtube = google.youtube('v3');
+
+                const verifyResp = await youtube.liveBroadcasts.list({
+                    auth,
+                    part: ['snippet'],
+                    id: [newBroadcastId],
+                    maxResults: 1
+                });
+
+                const actualBroadcast = verifyResp.data.items?.[0];
+                if (actualBroadcast) {
+                    const actualTitle = actualBroadcast.snippet?.title ?? '';
+                    if (!actualTitle.includes(expectedSheetInTitle)) {
+                        console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+                        console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
+                    } else if (actualTitle !== title) {
+                        console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
+                    } else {
+                        console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches: "${actualTitle}"`);
+                    }
+                }
+            } catch (verifyError: any) {
+                console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
+            }
+
             broadcastId = newBroadcastId;
             writeState({ eventKey, broadcastId });
         } else {
@@ -565,26 +631,35 @@ export async function tick(opts: {
         }
 
         console.error(`[DEBUG] Starting OBS with args: ${args.join(' ')}`);
-        // Use cmd.exe with 'start' command to ensure OBS runs in proper user context
-        // The 'start' command ensures the process runs with proper permissions
-        // We use /D to set working directory and pass executable with args
-        const cmdArgs = ['/c', 'start', '/D', obsCwd, obsExe, ...args];
-
+        // Launch OBS directly using spawn (avoiding PowerShell due to AccessViolationException crashes)
+        // This was the working method before recent changes
         try {
-            const cmdProcess = spawn('cmd.exe', cmdArgs, {
+            const obsProcess = spawn(obsExe, args, {
                 cwd: obsCwd,
-                detached: false, // Keep attached initially to ensure proper context
+                detached: true,
                 stdio: 'ignore',
                 windowsHide: true
             });
-            // Wait a moment for the process to start
-            await sleep(1000);
-            // Now unref so Node.js can exit independently
-            cmdProcess.unref();
-            console.error(`[DEBUG] OBS launch command executed (PID: ${cmdProcess.pid ?? 'unknown'})`);
-        } catch (cmdError: any) {
-            console.error(`[ERROR] Failed to launch OBS via cmd.exe:`, cmdError);
-            throw new Error(`OBS launch failed: ${cmdError.message}`);
+            // Unref the process so Node.js can exit independently
+            obsProcess.unref();
+            console.error(`[DEBUG] OBS spawn initiated (PID: ${obsProcess.pid ?? 'unknown'})`);
+        } catch (spawnError: any) {
+            // Fallback: try using cmd.exe to launch OBS if direct spawn fails
+            console.error(`[WARN] Direct spawn failed, trying cmd.exe fallback:`, spawnError);
+            try {
+                const cmdArgs = ['/c', 'start', '/min', obsExe, ...args];
+                const cmdProcess = spawn('cmd.exe', cmdArgs, {
+                    cwd: obsCwd,
+                    detached: true,
+                    stdio: 'ignore',
+                    windowsHide: true
+                });
+                cmdProcess.unref();
+                console.error(`[DEBUG] OBS launched via cmd.exe fallback`);
+            } catch (cmdError: any) {
+                console.error(`[ERROR] Failed to launch OBS via both spawn and cmd.exe:`, cmdError);
+                throw new Error(`OBS launch failed: ${cmdError.message}`);
+            }
         }
 
         // Launch helpers to dismiss any dialogs that might appear
