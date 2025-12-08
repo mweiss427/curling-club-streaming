@@ -83,6 +83,50 @@ export async function createBroadcastAndBind(opts: {
     return broadcastId;
 }
 
+export async function updateBroadcastTitle(
+    broadcastId: string,
+    title: string,
+    description?: string,
+    credentialsPath?: string,
+    tokenPath?: string
+): Promise<void> {
+    console.error(`[DEBUG] Updating broadcast ${broadcastId} title to: ${title}`);
+    const keyPath = credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+    const resolvedTokenPath = tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+    const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+    const youtube = google.youtube('v3');
+
+    // First, get the current broadcast to preserve other fields
+    const currentResp = await youtube.liveBroadcasts.list({
+        auth,
+        part: ['snippet', 'status', 'contentDetails'],
+        id: [broadcastId],
+        maxResults: 1
+    });
+
+    const currentBroadcast = currentResp.data.items?.[0];
+    if (!currentBroadcast) {
+        throw new Error(`Broadcast ${broadcastId} not found`);
+    }
+
+    // Update the broadcast with new title/description
+    await youtube.liveBroadcasts.update({
+        auth,
+        part: ['snippet', 'status', 'contentDetails'],
+        requestBody: {
+            id: broadcastId,
+            snippet: {
+                ...currentBroadcast.snippet,
+                title,
+                description: description ?? currentBroadcast.snippet?.description
+            },
+            status: currentBroadcast.status,
+            contentDetails: currentBroadcast.contentDetails
+        }
+    });
+    console.error(`[DEBUG] Broadcast title updated successfully`);
+}
+
 export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
     const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
     const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;

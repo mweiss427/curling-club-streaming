@@ -477,7 +477,18 @@ export async function tick(opts: {
                     broadcastTitleValid = false;
                 } else {
                     console.error(`[DEBUG] Existing broadcast verified - title contains sheet identifier: ${expectedSheetInTitle}`);
-                    broadcastTitleValid = true;
+
+                    // Check if the broadcast title matches the expected title for the current event
+                    // If it doesn't match, create a new broadcast instead of updating (avoids conflicts with multiple simultaneous streams)
+                    if (broadcastTitle !== title) {
+                        console.error(`[INFO] Broadcast title "${broadcastTitle}" does not match expected title "${title}"`);
+                        console.error(`[INFO] Creating new broadcast instead of updating (to avoid conflicts with multiple simultaneous streams)`);
+                        clearState();
+                        broadcastTitleValid = false;
+                    } else {
+                        console.error(`[DEBUG] Broadcast title matches expected title: ${title}`);
+                        broadcastTitleValid = true;
+                    }
                 }
             }
         } catch (e: any) {

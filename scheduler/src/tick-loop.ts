@@ -15,10 +15,33 @@ async function runTick(): Promise<void> {
             timeout: 60000 // 60 second timeout
         });
         const output = (stdout + stderr).trim();
-        console.log(`[${timestamp}] ${output}`);
+
+        // Check if output is a valid status (not an error)
+        const validStatuses = ['STARTED', 'ALREADY_LIVE', 'STOPPED', 'IDLE'];
+        const isStatus = validStatuses.some(status => output.includes(status));
+
+        if (isStatus) {
+            // Valid status - log as info, not error
+            console.log(`[${timestamp}] ${output}`);
+        } else if (output) {
+            // Has output but not a known status - log normally
+            console.log(`[${timestamp}] ${output}`);
+        }
+        // If no output, don't log anything
     } catch (error: any) {
         const errorMsg = error.stdout || error.stderr || error.message || String(error);
-        console.error(`[${timestamp}] ERROR: ${errorMsg}`);
+
+        // Check if the error message contains a valid status (command may have succeeded but exited with code)
+        const validStatuses = ['STARTED', 'ALREADY_LIVE', 'STOPPED', 'IDLE'];
+        const isStatus = validStatuses.some(status => errorMsg.includes(status));
+
+        if (isStatus) {
+            // Valid status in error output - log as info (command may have succeeded)
+            console.log(`[${timestamp}] ${errorMsg}`);
+        } else {
+            // Actual error - log as error
+            console.error(`[${timestamp}] ERROR: ${errorMsg}`);
+        }
     }
 }
 
@@ -31,3 +54,5 @@ process.on('SIGINT', () => {
     console.log('\n[INFO] Shutting down tick-loop...');
     process.exit(0);
 });
+
+
