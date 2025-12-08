@@ -403,7 +403,9 @@ export async function tick(opts: {
     }
 
     // Build stable key for the current calendar event window
-    const eventKey = `${current.start}|${current.end}`;
+    // Include summary in eventKey so that if event name changes, it's treated as a new event
+    // This prevents creating duplicate broadcasts when event name changes mid-stream
+    const eventKey = `${current.start}|${current.end}|${current.summary ?? 'Untitled Event'}`;
     const st = readState();
 
     // Construct a friendly title using event time and sheet
@@ -447,11 +449,11 @@ export async function tick(opts: {
 
         writeState({ eventKey, broadcastId });
     } else {
+        // State exists and eventKey matches - verify the broadcast is still valid
         broadcastId = st.broadcastId;
-        console.error(`[DEBUG] Using existing broadcast for event: ${broadcastId}`);
+        console.error(`[DEBUG] Found existing state for event, checking broadcast: ${broadcastId}`);
 
-        // Verify existing broadcast belongs to this sheet by checking its title
-        let broadcastTitleValid = false;
+        let shouldReuseBroadcast = true;
         try {
             const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
             const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
@@ -460,48 +462,52 @@ export async function tick(opts: {
 
             const broadcastResp = await youtube.liveBroadcasts.list({
                 auth,
-                part: ['snippet'],
+                part: ['snippet', 'status'],
                 id: [broadcastId],
                 maxResults: 1
             });
 
             const broadcast = broadcastResp.data.items?.[0];
-            if (broadcast) {
+            if (!broadcast) {
+                console.error(`[WARN] Broadcast ${broadcastId} not found, will create new one`);
+                shouldReuseBroadcast = false;
+            } else {
                 const broadcastTitle = broadcast.snippet?.title ?? '';
                 const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+                const isLive = broadcast.status?.lifeCycleStatus === 'live';
+
+                // Check if broadcast belongs to correct sheet
                 if (!broadcastTitle.includes(expectedSheetInTitle)) {
                     console.error(`[ERROR] Existing broadcast ${broadcastId} title "${broadcastTitle}" does not match expected sheet ${opts.sheet}`);
-                    console.error(`[ERROR] Expected title to contain "${expectedSheetInTitle}". This broadcast may belong to a different sheet.`);
-                    console.error(`[ERROR] Clearing state and will create a new broadcast for Sheet ${opts.sheet} on next iteration.`);
-                    clearState();
-                    broadcastTitleValid = false;
-                } else {
-                    console.error(`[DEBUG] Existing broadcast verified - title contains sheet identifier: ${expectedSheetInTitle}`);
-
-                    // Check if the broadcast title matches the expected title for the current event
-                    // If it doesn't match, create a new broadcast instead of updating (avoids conflicts with multiple simultaneous streams)
-                    if (broadcastTitle !== title) {
-                        console.error(`[INFO] Broadcast title "${broadcastTitle}" does not match expected title "${title}"`);
-                        console.error(`[INFO] Creating new broadcast instead of updating (to avoid conflicts with multiple simultaneous streams)`);
-                        clearState();
-                        broadcastTitleValid = false;
+                    console.error(`[ERROR] This broadcast may belong to a different sheet. Will create a new one.`);
+                    shouldReuseBroadcast = false;
+                } else if (broadcastTitle !== title) {
+                    // Title doesn't match - but if it's already live, don't interrupt it
+                    if (isLive) {
+                        console.error(`[WARN] Broadcast title "${broadcastTitle}" doesn't match expected "${title}", but broadcast is LIVE`);
+                        console.error(`[WARN] Reusing existing live broadcast to avoid interrupting stream`);
+                        shouldReuseBroadcast = true;
                     } else {
-                        console.error(`[DEBUG] Broadcast title matches expected title: ${title}`);
-                        broadcastTitleValid = true;
+                        console.error(`[INFO] Broadcast title "${broadcastTitle}" doesn't match expected "${title}" and is not live`);
+                        console.error(`[INFO] Will create new broadcast (to avoid conflicts with multiple simultaneous streams)`);
+                        shouldReuseBroadcast = false;
                     }
+                } else {
+                    console.error(`[DEBUG] Broadcast title matches expected title: ${title}`);
+                    shouldReuseBroadcast = true;
                 }
             }
         } catch (e: any) {
-            console.error(`[WARN] Could not verify existing broadcast title (non-fatal):`, e);
-            // Assume valid if we can't check (don't want to break existing functionality)
-            broadcastTitleValid = true;
+            console.error(`[WARN] Could not verify existing broadcast (non-fatal):`, e);
+            // If we can't verify, assume it's valid to avoid breaking functionality
+            shouldReuseBroadcast = true;
         }
 
-        // If broadcast doesn't match sheet, we've cleared state - create a new broadcast immediately
-        if (!broadcastTitleValid) {
-            console.error(`[INFO] State cleared due to broadcast mismatch. Creating new broadcast for Sheet ${opts.sheet}...`);
-            // Fall through to create new broadcast (treat as if state was empty)
-            // We'll create the broadcast below by treating this as a new event
+        // If we shouldn't reuse the broadcast, clear state and create a new one
+        if (!shouldReuseBroadcast) {
+            console.error(`[INFO] Clearing state and creating new broadcast for Sheet ${opts.sheet}...`);
+            clearState();
+
             const newBroadcastId = await withTimeout(
                 createBroadcastAndBind({
                     title,
@@ -520,6 +526,8 @@ export async function tick(opts: {
 
             broadcastId = newBroadcastId;
             writeState({ eventKey, broadcastId });
+        } else {
+            console.error(`[DEBUG] Reusing existing broadcast: ${broadcastId}`);
         }
 
     }
@@ -542,44 +550,67 @@ export async function tick(opts: {
     const obsCwd = path.dirname(obsExe);
 
     if (!running) {
-        console.error(`[DEBUG] Starting OBS (detached) with args: ${args.join(' ')}`);
-        // Launch OBS directly using spawn (avoiding PowerShell due to AccessViolationException crashes)
+        // First, ensure any lingering OBS processes are terminated
+        console.error(`[DEBUG] Ensuring no lingering OBS processes before starting...`);
         try {
-            const obsProcess = spawn(obsExe, args, {
+            // Use taskkill to forcefully terminate any existing OBS instances
+            // This ensures a clean start and prevents "already running" dialogs
+            await execFileAsync('taskkill', ['/F', '/IM', 'obs64.exe', '/T'], { timeout: 5000 });
+            console.error(`[DEBUG] Terminated any existing OBS processes`);
+            // Wait a moment for cleanup
+            await sleep(2000);
+        } catch (e: any) {
+            // Ignore errors - process may not exist, which is fine
+            console.error(`[DEBUG] No existing OBS processes to terminate (or already terminated)`);
+        }
+
+        console.error(`[DEBUG] Starting OBS with args: ${args.join(' ')}`);
+        // Use cmd.exe with 'start' command to ensure OBS runs in proper user context
+        // The 'start' command ensures the process runs with proper permissions
+        // We use /D to set working directory and pass executable with args
+        const cmdArgs = ['/c', 'start', '/D', obsCwd, obsExe, ...args];
+
+        try {
+            const cmdProcess = spawn('cmd.exe', cmdArgs, {
                 cwd: obsCwd,
-                detached: true,
+                detached: false, // Keep attached initially to ensure proper context
                 stdio: 'ignore',
                 windowsHide: true
             });
-            // Unref the process so Node.js can exit independently
-            obsProcess.unref();
-            console.error(`[DEBUG] OBS spawn initiated (PID: ${obsProcess.pid ?? 'unknown'})`);
-        } catch (spawnError: any) {
-            // Fallback: try using cmd.exe to launch OBS if direct spawn fails
-            console.error(`[WARN] Direct spawn failed, trying cmd.exe fallback:`, spawnError);
-            try {
-                const cmdArgs = ['/c', 'start', '/min', obsExe, ...args];
-                const cmdProcess = spawn('cmd.exe', cmdArgs, {
-                    cwd: obsCwd,
+            // Wait a moment for the process to start
+            await sleep(1000);
+            // Now unref so Node.js can exit independently
+            cmdProcess.unref();
+            console.error(`[DEBUG] OBS launch command executed (PID: ${cmdProcess.pid ?? 'unknown'})`);
+        } catch (cmdError: any) {
+            console.error(`[ERROR] Failed to launch OBS via cmd.exe:`, cmdError);
+            throw new Error(`OBS launch failed: ${cmdError.message}`);
+        }
+
+        // Launch helpers to dismiss any dialogs that might appear
+        const repoRoot = path.resolve(moduleDir, '../../..');
+
+        // Helper to dismiss "OBS is already running" dialog
+        try {
+            const alreadyRunningScript = path.join(repoRoot, 'tools', 'dismiss-obs-already-running.ps1');
+            if (fs.existsSync(alreadyRunningScript)) {
+                const cmdArgs = ['/c', 'start', '/min', 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', alreadyRunningScript];
+                const dismissProcess = spawn('cmd.exe', cmdArgs, {
                     detached: true,
                     stdio: 'ignore',
                     windowsHide: true
                 });
-                cmdProcess.unref();
-                console.error(`[DEBUG] OBS launched via cmd.exe fallback`);
-            } catch (cmdError: any) {
-                console.error(`[ERROR] Failed to launch OBS via both spawn and cmd.exe:`, cmdError);
-                throw new Error(`OBS launch failed: ${cmdError.message}`);
+                dismissProcess.unref();
+                console.error(`[DEBUG] Launched "already running" dialog dismissal helper`);
             }
+        } catch (e) {
+            console.error('[WARN] Failed to start already-running dismissal helper (non-critical):', e);
         }
 
-        // Fire-and-forget: helper to dismiss crash/safe-mode dialog if it appears
-        // Note: This still uses PowerShell, but it's non-critical and will fail gracefully
+        // Helper to dismiss crash/safe-mode dialog if it appears
         try {
-            const repoRoot = path.resolve(moduleDir, '../../..');
             const dismissScript = path.join(repoRoot, 'tools', 'dismiss-obs-safemode.ps1');
             if (fs.existsSync(dismissScript)) {
-                // Try to launch via cmd.exe instead of PowerShell to avoid crashes
                 const cmdArgs = ['/c', 'start', '/min', 'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', dismissScript];
                 const dismissProcess = spawn('cmd.exe', cmdArgs, {
                     detached: true,
@@ -587,6 +618,7 @@ export async function tick(opts: {
                     windowsHide: true
                 });
                 dismissProcess.unref();
+                console.error(`[DEBUG] Launched safe-mode dismissal helper`);
             }
         } catch (e) {
             console.error('[WARN] Failed to start safe-mode dismissal helper (non-critical):', e);
