@@ -95,6 +95,9 @@ export async function createBroadcastAndBind(opts: {
                 .map((s) => `  id=${s.id} key=${s.key}${s.title ? ` title=${s.title}` : ''}`)
                 .join('\n');
             const availableKeysMsg = availableKeys ? `\nAvailable streams:\n${availableKeys}` : '\nNo streams with keys found.';
+            console.error(`[ERROR] No liveStream found for stream key '${opts.streamKey}'.${availableKeysMsg}`);
+            console.error(`[ERROR] This will cause the broadcast to use the default stream key instead of the intended one.`);
+            console.error(`[ERROR] Fix: Update YOUTUBE_STREAM_KEY to match one of the available keys above, or use YOUTUBE_STREAM_ID.`);
             throw new Error(`No liveStream found for stream key '${opts.streamKey}'.${availableKeysMsg}\n\nProvide --stream-id or update your YOUTUBE_STREAM_KEY environment variable to match one of the available keys.`);
         }
         resolvedStreamId = match.id ?? undefined;
@@ -102,6 +105,8 @@ export async function createBroadcastAndBind(opts: {
     }
 
     if (!resolvedStreamId) {
+        console.error(`[ERROR] No stream ID or stream key provided. Broadcast will be created but not bound to a stream.`);
+        console.error(`[ERROR] This means it will use the default stream key, which may not be the correct one for your sheet.`);
         throw new Error('Provide --stream-id or --stream-key so I can bind the broadcast.');
     }
 

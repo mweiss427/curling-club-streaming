@@ -35,6 +35,7 @@ async function main(): Promise<void> {
         .command('yt-streams', 'List your YouTube live streams (IDs and stream keys)', (y) =>
             y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
                 .option('token', { type: 'string', describe: 'Path to OAuth token JSON (refresh token)' })
+                .option('all', { type: 'boolean', default: false, describe: 'List all streams, ignoring YOUTUBE_STREAM_KEY filter' })
         )
         .command('yt-auth-init', 'Run interactive OAuth consent and save token for headless use', (y) =>
             y.option('credentials', { type: 'string', describe: 'Path to OAuth client credentials JSON' })
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
     }
 
     if (cmd === 'yt-streams') {
-        const streamKey = process.env.YOUTUBE_STREAM_KEY;
+        const streamKey = (argv.all as boolean) ? undefined : process.env.YOUTUBE_STREAM_KEY;
         const streams = await listLiveStreams({
             credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
             tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH,
@@ -158,7 +159,25 @@ async function main(): Promise<void> {
         });
         if (streams.length === 0) {
             if (streamKey) {
-                console.log(`No live streams found matching stream key '${streamKey}'. Create one in YouTube Live Control Room or check your YOUTUBE_STREAM_KEY environment variable.`);
+                console.log(`No live streams found matching stream key '${streamKey}'.`);
+                console.log('');
+                console.log('Listing all available streams to help you find the correct key:');
+                // List all streams without the filter to show what's available
+                const allStreams = await listLiveStreams({
+                    credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
+                    tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
+                });
+                if (allStreams.length === 0) {
+                    console.log('  No live streams found. Create one in YouTube Live Control Room.');
+                } else {
+                    for (const s of allStreams) {
+                        const key = s.streamName ? `  key=${s.streamName}` : '';
+                        const title = s.title ? `  title=${s.title}` : '';
+                        console.log(`  id=${s.id}${key}${title}`.trim());
+                    }
+                    console.log('');
+                    console.log(`To fix: Update YOUTUBE_STREAM_KEY to match one of the keys above, or use YOUTUBE_STREAM_ID with one of the IDs.`);
+                }
             } else {
                 console.log('No live streams found. Create one in YouTube Live Control Room.');
             }
