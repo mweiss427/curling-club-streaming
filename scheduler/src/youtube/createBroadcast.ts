@@ -28,24 +28,36 @@ export async function createBroadcastAndBind(opts: {
 
     console.error(`[DEBUG] Creating broadcast...`);
     
-    // Build snippet - only include scheduledStartTime if provided and in the future
+    // Build snippet - always include scheduledStartTime (required by YouTube API)
     const snippet: any = {
         title: opts.title,
         description: opts.description
     };
     
+    // YouTube API requires scheduledStartTime, but it must be in the future
+    const now = new Date();
+    let scheduledStartTime: string;
+    
     if (opts.scheduledStart) {
         const scheduledTime = new Date(opts.scheduledStart);
-        const now = new Date();
         if (scheduledTime > now) {
-            snippet.scheduledStartTime = opts.scheduledStart;
-            console.error(`[DEBUG] Setting scheduledStartTime to: ${opts.scheduledStart}`);
+            // Event is in the future - use the scheduled time
+            scheduledStartTime = opts.scheduledStart;
+            console.error(`[DEBUG] Setting scheduledStartTime to: ${scheduledStartTime}`);
         } else {
-            console.error(`[WARN] Scheduled start time ${opts.scheduledStart} is in the past, omitting scheduledStartTime`);
+            // Event is in the past - set to current time + 2 minutes (to ensure it's in the future)
+            const futureTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
+            scheduledStartTime = futureTime.toISOString();
+            console.error(`[WARN] Event start time ${opts.scheduledStart} is in the past, setting scheduledStartTime to ${scheduledStartTime} (2 minutes from now)`);
         }
     } else {
-        console.error(`[DEBUG] No scheduledStartTime provided, broadcast will start immediately when stream begins`);
+        // No scheduled start provided - use current time + 2 minutes
+        const futureTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
+        scheduledStartTime = futureTime.toISOString();
+        console.error(`[DEBUG] No scheduledStartTime provided, setting to ${scheduledStartTime} (2 minutes from now)`);
     }
+    
+    snippet.scheduledStartTime = scheduledStartTime;
     
     const insertRes = await youtube.liveBroadcasts.insert({
         auth,

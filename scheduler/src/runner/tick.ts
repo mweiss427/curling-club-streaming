@@ -538,19 +538,24 @@ export async function tick(opts: {
         // Only create new broadcast if we didn't find an existing one
         if (!foundExistingBroadcast) {
             console.error(`[INFO] Sheet ${opts.sheet} - Creating new broadcast for event: ${title}`);
-            
-            // Check if event start time is in the past - if so, don't set scheduledStartTime
-            // YouTube requires scheduled start time to be in the future
+
+            // YouTube requires scheduledStartTime to be in the future
+            // Always provide a valid scheduledStart (never undefined)
             const eventStartTime = new Date(current.start);
             const now = new Date();
-            const scheduledStart = eventStartTime > now ? current.start : undefined;
-            
-            if (scheduledStart) {
+            let scheduledStart: string;
+
+            if (eventStartTime > now) {
+                // Event is in the future - use the event start time
+                scheduledStart = current.start;
                 console.error(`[DEBUG] Event starts in the future, setting scheduledStartTime: ${scheduledStart}`);
             } else {
-                console.error(`[DEBUG] Event start time is in the past (${current.start}), not setting scheduledStartTime (will start immediately)`);
+                // Event is in the past - use current time + 2 minutes
+                const futureTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
+                scheduledStart = futureTime.toISOString();
+                console.error(`[DEBUG] Event start time is in the past (${current.start}), setting scheduledStartTime to ${scheduledStart} (2 minutes from now)`);
             }
-            
+
             broadcastId = await withTimeout(
                 createBroadcastAndBind({
                     title,
@@ -785,16 +790,21 @@ export async function tick(opts: {
                 console.error(`[INFO] No existing broadcast found with title "${title}", creating new one...`);
                 clearState();
 
-                // Check if event start time is in the past - if so, don't set scheduledStartTime
-                // YouTube requires scheduled start time to be in the future
+                // YouTube requires scheduledStartTime to be in the future
+                // Always provide a valid scheduledStart (never undefined)
                 const eventStartTime = new Date(current.start);
                 const now = new Date();
-                const scheduledStart = eventStartTime > now ? current.start : undefined;
-                
-                if (scheduledStart) {
+                let scheduledStart: string;
+
+                if (eventStartTime > now) {
+                    // Event is in the future - use the event start time
+                    scheduledStart = current.start;
                     console.error(`[DEBUG] Event starts in the future, setting scheduledStartTime: ${scheduledStart}`);
                 } else {
-                    console.error(`[DEBUG] Event start time is in the past (${current.start}), not setting scheduledStartTime (will start immediately)`);
+                    // Event is in the past - use current time + 2 minutes
+                    const futureTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
+                    scheduledStart = futureTime.toISOString();
+                    console.error(`[DEBUG] Event start time is in the past (${current.start}), setting scheduledStartTime to ${scheduledStart} (2 minutes from now)`);
                 }
 
                 const newBroadcastId = await withTimeout(
