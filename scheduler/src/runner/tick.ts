@@ -454,7 +454,7 @@ export async function tick(opts: {
                 }
             ) ?? [];
 
-            let matchingBroadcast = undefined as google.youtube.Schema$LiveBroadcast | undefined;
+            let matchingBroadcast: typeof exactMatches[0] | undefined = undefined;
 
             if (exactMatches.length > 0) {
                 console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
@@ -686,7 +686,7 @@ export async function tick(opts: {
                     }
                 ) ?? [];
 
-                let matchingBroadcast = undefined as google.youtube.Schema$LiveBroadcast | undefined;
+                let matchingBroadcast: typeof exactMatches[0] | undefined = undefined;
 
                 if (exactMatches.length > 0) {
                     console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
