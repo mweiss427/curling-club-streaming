@@ -440,9 +440,33 @@ export async function tick(opts: {
                 maxResults: 50
             });
 
-            const matchingBroadcast = searchResp.data.items?.find(
+            // Look for exact title match first
+            let matchingBroadcast = searchResp.data.items?.find(
                 (b) => b.snippet?.title === title && b.status?.lifeCycleStatus !== 'complete'
             );
+
+            // If no exact match, look for broadcasts with same event name and sheet, created recently (last 10 minutes)
+            // This catches cases where title format might differ slightly
+            if (!matchingBroadcast) {
+                const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                const eventName = current.summary ?? 'Untitled Event';
+                const sheetPattern = `Sheet ${opts.sheet}`;
+                
+                matchingBroadcast = searchResp.data.items?.find((b) => {
+                    const broadcastTitle = b.snippet?.title ?? '';
+                    const created = b.snippet?.publishedAt;
+                    const isRecent = created && created > tenMinutesAgo;
+                    const hasEventName = broadcastTitle.includes(eventName);
+                    const hasSheet = broadcastTitle.includes(sheetPattern);
+                    const notComplete = b.status?.lifeCycleStatus !== 'complete';
+                    
+                    return isRecent && hasEventName && hasSheet && notComplete;
+                });
+                
+                if (matchingBroadcast) {
+                    console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
+                }
+            }
 
             if (matchingBroadcast && matchingBroadcast.id) {
                 console.error(`[INFO] Found existing broadcast with exact title "${title}": ${matchingBroadcast.id}`);
@@ -576,7 +600,7 @@ export async function tick(opts: {
         // If we shouldn't reuse the broadcast, check if one with exact title already exists
         if (!shouldReuseBroadcast) {
             console.error(`[INFO] Existing broadcast doesn't match, checking for broadcast with exact title "${title}"...`);
-            
+
             let foundExistingBroadcast = false;
             try {
                 const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
@@ -592,9 +616,33 @@ export async function tick(opts: {
                     maxResults: 50
                 });
 
-                const matchingBroadcast = searchResp.data.items?.find(
+                // Look for exact title match first
+                let matchingBroadcast = searchResp.data.items?.find(
                     (b) => b.snippet?.title === title && b.status?.lifeCycleStatus !== 'complete'
                 );
+
+                // If no exact match, look for broadcasts with same event name and sheet, created recently (last 10 minutes)
+                // This catches cases where title format might differ slightly
+                if (!matchingBroadcast) {
+                    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                    const eventName = current.summary ?? 'Untitled Event';
+                    const sheetPattern = `Sheet ${opts.sheet}`;
+                    
+                    matchingBroadcast = searchResp.data.items?.find((b) => {
+                        const broadcastTitle = b.snippet?.title ?? '';
+                        const created = b.snippet?.publishedAt;
+                        const isRecent = created && created > tenMinutesAgo;
+                        const hasEventName = broadcastTitle.includes(eventName);
+                        const hasSheet = broadcastTitle.includes(sheetPattern);
+                        const notComplete = b.status?.lifeCycleStatus !== 'complete';
+                        
+                        return isRecent && hasEventName && hasSheet && notComplete;
+                    });
+                    
+                    if (matchingBroadcast) {
+                        console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
+                    }
+                }
 
                 if (matchingBroadcast && matchingBroadcast.id) {
                     console.error(`[INFO] Found existing broadcast with exact title "${title}": ${matchingBroadcast.id}`);
