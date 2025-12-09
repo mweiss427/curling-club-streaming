@@ -27,15 +27,31 @@ export async function createBroadcastAndBind(opts: {
     const youtube = google.youtube('v3');
 
     console.error(`[DEBUG] Creating broadcast...`);
+    
+    // Build snippet - only include scheduledStartTime if provided and in the future
+    const snippet: any = {
+        title: opts.title,
+        description: opts.description
+    };
+    
+    if (opts.scheduledStart) {
+        const scheduledTime = new Date(opts.scheduledStart);
+        const now = new Date();
+        if (scheduledTime > now) {
+            snippet.scheduledStartTime = opts.scheduledStart;
+            console.error(`[DEBUG] Setting scheduledStartTime to: ${opts.scheduledStart}`);
+        } else {
+            console.error(`[WARN] Scheduled start time ${opts.scheduledStart} is in the past, omitting scheduledStartTime`);
+        }
+    } else {
+        console.error(`[DEBUG] No scheduledStartTime provided, broadcast will start immediately when stream begins`);
+    }
+    
     const insertRes = await youtube.liveBroadcasts.insert({
         auth,
         part: ['snippet', 'status', 'contentDetails'],
         requestBody: {
-            snippet: {
-                title: opts.title,
-                description: opts.description,
-                scheduledStartTime: opts.scheduledStart ?? new Date().toISOString()
-            },
+            snippet,
             status: { privacyStatus: privacy },
             contentDetails: {
                 enableAutoStart: true,

@@ -458,25 +458,25 @@ export async function tick(opts: {
 
             if (exactMatches.length > 0) {
                 console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
-                
+
                 // If multiple found, keep the most recent one, delete the rest
                 if (exactMatches.length > 1) {
                     console.error(`[WARN] Found ${exactMatches.length} duplicate broadcasts! Cleaning up duplicates...`);
-                    
+
                     // Sort by publishedAt (most recent first)
                     exactMatches.sort((a, b) => {
                         const aTime = a.snippet?.publishedAt ? new Date(a.snippet.publishedAt).getTime() : 0;
                         const bTime = b.snippet?.publishedAt ? new Date(b.snippet.publishedAt).getTime() : 0;
                         return bTime - aTime; // Most recent first
                     });
-                    
+
                     // Keep the first (most recent), delete the rest
                     matchingBroadcast = exactMatches[0];
                     const duplicatesToDelete = exactMatches.slice(1);
-                    
+
                     console.error(`[INFO] Keeping most recent broadcast: ${matchingBroadcast.id}`);
                     console.error(`[INFO] Deleting ${duplicatesToDelete.length} duplicate broadcast(s)...`);
-                    
+
                     for (const duplicate of duplicatesToDelete) {
                         if (duplicate.id) {
                             try {
@@ -497,9 +497,9 @@ export async function tick(opts: {
                 const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
                 const eventName = current.summary ?? 'Untitled Event';
                 const sheetPattern = `Sheet ${opts.sheet}`;
-                
+
                 console.error(`[DEBUG] No exact match found, searching for recent broadcasts with event "${eventName}" and sheet "${sheetPattern}"`);
-                
+
                 matchingBroadcast = searchResp.data.items?.find((b) => {
                     const broadcastTitle = b.snippet?.title ?? '';
                     const created = b.snippet?.publishedAt;
@@ -508,14 +508,14 @@ export async function tick(opts: {
                     const hasEventName = broadcastTitle.includes(eventName);
                     const hasSheet = broadcastTitle.includes(sheetPattern);
                     const notComplete = status !== 'complete';
-                    
+
                     if (isRecent && hasEventName && hasSheet && notComplete) {
                         console.error(`[DEBUG] Found recent similar broadcast: "${broadcastTitle}" (status: ${status}, created: ${created})`);
                         return true;
                     }
                     return false;
                 });
-                
+
                 if (matchingBroadcast) {
                     console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
                 } else {
@@ -538,6 +538,19 @@ export async function tick(opts: {
         // Only create new broadcast if we didn't find an existing one
         if (!foundExistingBroadcast) {
             console.error(`[INFO] Sheet ${opts.sheet} - Creating new broadcast for event: ${title}`);
+            
+            // Check if event start time is in the past - if so, don't set scheduledStartTime
+            // YouTube requires scheduled start time to be in the future
+            const eventStartTime = new Date(current.start);
+            const now = new Date();
+            const scheduledStart = eventStartTime > now ? current.start : undefined;
+            
+            if (scheduledStart) {
+                console.error(`[DEBUG] Event starts in the future, setting scheduledStartTime: ${scheduledStart}`);
+            } else {
+                console.error(`[DEBUG] Event start time is in the past (${current.start}), not setting scheduledStartTime (will start immediately)`);
+            }
+            
             broadcastId = await withTimeout(
                 createBroadcastAndBind({
                     title,
@@ -547,7 +560,7 @@ export async function tick(opts: {
                     streamKey: opts.streamKey,
                     credentialsPath: opts.credentialsPath,
                     tokenPath: opts.tokenPath,
-                    scheduledStart: current.start
+                    scheduledStart
                 }),
                 30000, // 30 second timeout for YouTube operations
                 'YouTube broadcast creation'
@@ -690,25 +703,25 @@ export async function tick(opts: {
 
                 if (exactMatches.length > 0) {
                     console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
-                    
+
                     // If multiple found, keep the most recent one, delete the rest
                     if (exactMatches.length > 1) {
                         console.error(`[WARN] Found ${exactMatches.length} duplicate broadcasts! Cleaning up duplicates...`);
-                        
+
                         // Sort by publishedAt (most recent first)
                         exactMatches.sort((a, b) => {
                             const aTime = a.snippet?.publishedAt ? new Date(a.snippet.publishedAt).getTime() : 0;
                             const bTime = b.snippet?.publishedAt ? new Date(b.snippet.publishedAt).getTime() : 0;
                             return bTime - aTime; // Most recent first
                         });
-                        
+
                         // Keep the first (most recent), delete the rest
                         matchingBroadcast = exactMatches[0];
                         const duplicatesToDelete = exactMatches.slice(1);
-                        
+
                         console.error(`[INFO] Keeping most recent broadcast: ${matchingBroadcast.id}`);
                         console.error(`[INFO] Deleting ${duplicatesToDelete.length} duplicate broadcast(s)...`);
-                        
+
                         for (const duplicate of duplicatesToDelete) {
                             if (duplicate.id) {
                                 try {
@@ -772,6 +785,18 @@ export async function tick(opts: {
                 console.error(`[INFO] No existing broadcast found with title "${title}", creating new one...`);
                 clearState();
 
+                // Check if event start time is in the past - if so, don't set scheduledStartTime
+                // YouTube requires scheduled start time to be in the future
+                const eventStartTime = new Date(current.start);
+                const now = new Date();
+                const scheduledStart = eventStartTime > now ? current.start : undefined;
+                
+                if (scheduledStart) {
+                    console.error(`[DEBUG] Event starts in the future, setting scheduledStartTime: ${scheduledStart}`);
+                } else {
+                    console.error(`[DEBUG] Event start time is in the past (${current.start}), not setting scheduledStartTime (will start immediately)`);
+                }
+
                 const newBroadcastId = await withTimeout(
                     createBroadcastAndBind({
                         title,
@@ -781,7 +806,7 @@ export async function tick(opts: {
                         streamKey: opts.streamKey,
                         credentialsPath: opts.credentialsPath,
                         tokenPath: opts.tokenPath,
-                        scheduledStart: current.start
+                        scheduledStart
                     }),
                     30000,
                     'YouTube broadcast creation (after mismatch)'
