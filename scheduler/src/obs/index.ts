@@ -89,6 +89,9 @@ export async function startOBS(options: StartOBSOptions = {}): Promise<void> {
     // Launch helpers to dismiss any dialogs that might appear
     await dismissOBSDialogs();
 
+    // Wait for OBS to start and allow dialogs to appear (safe mode can take 5-10 seconds)
+    await sleep(5000);
+
     // Poll up to ~60 seconds for OBS to appear
     let obsProcessDetected = false;
     for (let i = 0; i < 20; i++) {
@@ -173,7 +176,7 @@ export async function stopOBS(options: StopOBSOptions = {}): Promise<void> {
     // Step 3: Fallback - kill process using taskkill
     // Check if OBS is still running
     let obsStillRunning = true;
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 60; i++) {
         if (!(await isOBSRunning())) {
             obsStillRunning = false;
             break;
