@@ -51,7 +51,7 @@ export async function getStreamStatus(
     password?: string
 ): Promise<boolean | null> {
     if (!password) return null;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
         const response = await client.call('GetStreamStatus');
@@ -71,7 +71,7 @@ export async function startStream(
     password?: string
 ): Promise<void> {
     if (!password) throw new Error('OBS_WEBSOCKET_PASSWORD not set');
-    
+
     const client = await getObsConnection(host, port, password);
     await client.call('StartStream');
 }
@@ -82,7 +82,7 @@ export async function stopStream(
     password?: string
 ): Promise<void> {
     if (!password) return;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
         await client.call('StopStream');
@@ -97,7 +97,7 @@ export async function stopRecord(
     password?: string
 ): Promise<void> {
     if (!password) return;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
         await client.call('StopRecord');
@@ -112,7 +112,7 @@ export async function stopVirtualCam(
     password?: string
 ): Promise<void> {
     if (!password) return;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
         await client.call('StopVirtualCam');
@@ -127,7 +127,7 @@ export async function stopReplayBuffer(
     password?: string
 ): Promise<void> {
     if (!password) return;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
         await client.call('StopReplayBuffer');
@@ -142,10 +142,11 @@ export async function quitObs(
     password?: string
 ): Promise<void> {
     if (!password) return;
-    
+
     try {
         const client = await getObsConnection(host, port, password);
-        await client.call('Exit');
+        // @ts-expect-error - Quit command may not be in type definitions but exists in OBS WebSocket API
+        await client.call('Quit');
     } catch (error) {
         // Ignore errors
     } finally {
@@ -153,7 +154,7 @@ export async function quitObs(
         if (obsClient) {
             try {
                 await obsClient.disconnect();
-            } catch {}
+            } catch { }
             obsClient = null;
         }
     }
@@ -163,8 +164,11 @@ export async function closeConnection(): Promise<void> {
     if (obsClient) {
         try {
             await obsClient.disconnect();
-        } catch {}
+        } catch { }
         obsClient = null;
     }
     connectionPromise = null;
 }
+
+
+

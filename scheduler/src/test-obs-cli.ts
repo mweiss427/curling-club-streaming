@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getStreamStatus } from './obs/websocket.js';
+import { getStreamStatusFromWs as getStreamStatus } from './obs/index.js';
 
 const execAsync = promisify(exec);
 
@@ -129,4 +129,7 @@ testObsCli().catch((err) => {
     console.error('Test failed:', err);
     process.exit(1);
 });
+
+
+
 

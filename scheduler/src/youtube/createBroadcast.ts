@@ -89,7 +89,13 @@ export async function createBroadcastAndBind(opts: {
         const items = streams.data.items ?? [];
         const match = items.find((s) => s.cdn?.ingestionInfo?.streamName === opts.streamKey);
         if (!match) {
-            throw new Error(`No liveStream found for stream key '${opts.streamKey}'. Provide --stream-id or ensure the key matches.`);
+            const availableKeys = items
+                .map((s) => ({ id: s.id, key: s.cdn?.ingestionInfo?.streamName, title: s.snippet?.title }))
+                .filter((s) => s.key)
+                .map((s) => `  id=${s.id} key=${s.key}${s.title ? ` title=${s.title}` : ''}`)
+                .join('\n');
+            const availableKeysMsg = availableKeys ? `\nAvailable streams:\n${availableKeys}` : '\nNo streams with keys found.';
+            throw new Error(`No liveStream found for stream key '${opts.streamKey}'.${availableKeysMsg}\n\nProvide --stream-id or update your YOUTUBE_STREAM_KEY environment variable to match one of the available keys.`);
         }
         resolvedStreamId = match.id ?? undefined;
         console.error(`[DEBUG] Found matching stream ID: ${resolvedStreamId}`);

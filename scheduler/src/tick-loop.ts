@@ -20,41 +20,21 @@ async function runTick(): Promise<void> {
         return;
     }
 
-    // Check for stale lock file - verify PID is still running
+    // Check for stale lock file (older than 2 minutes)
     try {
         if (fs.existsSync(lockFile)) {
-            const lockContent = fs.readFileSync(lockFile, 'utf8').trim();
-            const lockPid = parseInt(lockContent, 10);
-            
-            if (isNaN(lockPid)) {
-                // Lock file doesn't contain a valid PID - remove it
-                console.error(`[${formatTimestamp()}] WARN: Lock file contains invalid PID, removing`);
+            const stats = fs.statSync(lockFile);
+            const age = Date.now() - stats.mtimeMs;
+            if (age > 120000) { // 2 minutes
+                console.error(`[${formatTimestamp()}] WARN: Removing stale lock file (${Math.round(age / 1000)}s old)`);
                 fs.unlinkSync(lockFile);
             } else {
-                // Check if the process is still running
-                try {
-                    process.kill(lockPid, 0); // Signal 0 doesn't kill, just checks if process exists
-                    // Process is running - check age
-                    const stats = fs.statSync(lockFile);
-                    const age = Date.now() - stats.mtimeMs;
-                    if (age > 120000) { // 2 minutes
-                        console.error(`[${formatTimestamp()}] WARN: Removing stale lock file (process ${lockPid} running but lock is ${Math.round(age / 1000)}s old)`);
-                        fs.unlinkSync(lockFile);
-                    } else {
-                        console.error(`[${formatTimestamp()}] SKIP: Lock file exists, process ${lockPid} is still running`);
-                        return;
-                    }
-                } catch (killError: any) {
-                    // Process doesn't exist (ESRCH error) or permission denied
-                    // Remove stale lock file
-                    console.error(`[${formatTimestamp()}] WARN: Lock file exists but process ${lockPid} is not running, removing stale lock`);
-                    fs.unlinkSync(lockFile);
-                }
+                console.error(`[${formatTimestamp()}] SKIP: Lock file exists, previous tick may still be running`);
+                return;
             }
         }
     } catch (e) {
-        // Ignore lock file errors (file might have been deleted by another process)
-        console.error(`[${formatTimestamp()}] WARN: Error checking lock file:`, e);
+        // Ignore lock file errors
     }
 
     isRunning = true;

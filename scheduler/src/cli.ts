@@ -2,7 +2,7 @@ import 'dotenv/config';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { listUpcoming, listCurrent, listUpcomingSingle, listCurrentSingle, SheetKey } from './google/list.js';
-import { createBroadcastAndBind, listLiveStreams } from './youtube/createBroadcast.js';
+import { createBroadcastAndBind, listLiveStreams } from './youtube/index.js';
 import { initAuth, getAuthStatus } from './youtube/auth.js';
 import { tick } from './runner/tick.js';
 
