@@ -451,7 +451,7 @@ export async function tick(opts: {
                 const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
                 const eventName = current.summary ?? 'Untitled Event';
                 const sheetPattern = `Sheet ${opts.sheet}`;
-                
+
                 matchingBroadcast = searchResp.data.items?.find((b) => {
                     const broadcastTitle = b.snippet?.title ?? '';
                     const created = b.snippet?.publishedAt;
@@ -459,10 +459,10 @@ export async function tick(opts: {
                     const hasEventName = broadcastTitle.includes(eventName);
                     const hasSheet = broadcastTitle.includes(sheetPattern);
                     const notComplete = b.status?.lifeCycleStatus !== 'complete';
-                    
+
                     return isRecent && hasEventName && hasSheet && notComplete;
                 });
-                
+
                 if (matchingBroadcast) {
                     console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
                 }
@@ -617,39 +617,63 @@ export async function tick(opts: {
                 });
 
                 // Look for exact title match first
+                // Check for any non-complete status (upcoming, live, created, etc.)
+                console.error(`[DEBUG] Searching ${searchResp.data.items?.length ?? 0} broadcasts for exact title match: "${title}"`);
                 let matchingBroadcast = searchResp.data.items?.find(
-                    (b) => b.snippet?.title === title && b.status?.lifeCycleStatus !== 'complete'
+                    (b) => {
+                        const broadcastTitle = b.snippet?.title ?? '';
+                        const status = b.status?.lifeCycleStatus;
+                        const isExactMatch = broadcastTitle === title;
+                        const isNotComplete = status !== 'complete';
+                        
+                        if (isExactMatch && isNotComplete) {
+                            console.error(`[DEBUG] Found exact title match: "${broadcastTitle}" with status: ${status}`);
+                            return true;
+                        }
+                        return false;
+                    }
                 );
 
-                // If no exact match, look for broadcasts with same event name and sheet, created recently (last 10 minutes)
-                // This catches cases where title format might differ slightly
+                // If no exact match, look for broadcasts with same event name and sheet, created recently (last 30 minutes)
+                // This catches cases where title format might differ slightly or broadcasts created just before this check
                 if (!matchingBroadcast) {
-                    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
                     const eventName = current.summary ?? 'Untitled Event';
                     const sheetPattern = `Sheet ${opts.sheet}`;
+                    
+                    console.error(`[DEBUG] No exact match found, searching for recent broadcasts with event "${eventName}" and sheet "${sheetPattern}"`);
                     
                     matchingBroadcast = searchResp.data.items?.find((b) => {
                         const broadcastTitle = b.snippet?.title ?? '';
                         const created = b.snippet?.publishedAt;
-                        const isRecent = created && created > tenMinutesAgo;
+                        const status = b.status?.lifeCycleStatus;
+                        const isRecent = created && created > thirtyMinutesAgo;
                         const hasEventName = broadcastTitle.includes(eventName);
                         const hasSheet = broadcastTitle.includes(sheetPattern);
-                        const notComplete = b.status?.lifeCycleStatus !== 'complete';
+                        const notComplete = status !== 'complete';
                         
-                        return isRecent && hasEventName && hasSheet && notComplete;
+                        if (isRecent && hasEventName && hasSheet && notComplete) {
+                            console.error(`[DEBUG] Found recent similar broadcast: "${broadcastTitle}" (status: ${status}, created: ${created})`);
+                            return true;
+                        }
+                        return false;
                     });
                     
                     if (matchingBroadcast) {
                         console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
+                    } else {
+                        console.error(`[DEBUG] No matching broadcast found in ${searchResp.data.items?.length ?? 0} results`);
                     }
                 }
 
                 if (matchingBroadcast && matchingBroadcast.id) {
-                    console.error(`[INFO] Found existing broadcast with exact title "${title}": ${matchingBroadcast.id}`);
+                    console.error(`[INFO] Found existing broadcast with title "${matchingBroadcast.snippet?.title}": ${matchingBroadcast.id}`);
                     console.error(`[INFO] Reusing existing broadcast instead of creating duplicate`);
                     broadcastId = matchingBroadcast.id;
                     writeState({ eventKey, broadcastId });
                     foundExistingBroadcast = true;
+                } else {
+                    console.error(`[DEBUG] No existing broadcast found - will create new one`);
                 }
             } catch (searchError: any) {
                 console.error(`[WARN] Failed to search for existing broadcasts (non-fatal):`, searchError);
