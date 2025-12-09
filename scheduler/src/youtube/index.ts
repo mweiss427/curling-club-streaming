@@ -214,6 +214,79 @@ export async function findRecentBroadcastByEvent(
 }
 
 /**
+ * Clean up duplicate broadcasts for a specific sheet and event name
+ * This catches cases where title formatting might differ slightly
+ */
+async function cleanupDuplicateBroadcastsForSheet(
+    sheet: SheetKey,
+    eventName: string,
+    options: YouTubeOptions = {}
+): Promise<void> {
+    try {
+        const keyPath =
+            options.credentialsPath ??
+            process.env.YOUTUBE_OAUTH_CREDENTIALS ??
+            path.resolve(process.cwd(), 'youtube.credentials.json');
+        const resolvedTokenPath = options.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+        const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+        const youtube = google.youtube('v3');
+
+        const searchResp = await youtube.liveBroadcasts.list({
+            auth,
+            part: ['snippet', 'status'],
+            mine: true,
+            maxResults: 50
+        });
+
+        const sheetPattern = `Sheet ${sheet}`;
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
+        // Find all recent broadcasts for this sheet with this event name
+        const matches =
+            searchResp.data.items?.filter((b) => {
+                const broadcastTitle = b.snippet?.title ?? '';
+                const created = b.snippet?.publishedAt;
+                const status = b.status?.lifeCycleStatus;
+                const isRecent = created && created > thirtyMinutesAgo;
+                const hasEventName = broadcastTitle.includes(eventName);
+                const hasSheet = broadcastTitle.includes(sheetPattern);
+                const notComplete = status !== 'complete';
+                return isRecent && hasEventName && hasSheet && notComplete;
+            }) ?? [];
+
+        if (matches.length > 1) {
+            console.error(`[WARN] Found ${matches.length} duplicate broadcasts for Sheet ${sheet} event "${eventName}"! Cleaning up...`);
+
+            // Sort by publishedAt (most recent first)
+            matches.sort((a, b) => {
+                const aTime = a.snippet?.publishedAt ? new Date(a.snippet.publishedAt).getTime() : 0;
+                const bTime = b.snippet?.publishedAt ? new Date(b.snippet.publishedAt).getTime() : 0;
+                return bTime - aTime; // Most recent first
+            });
+
+            // Keep the first (most recent), delete the rest
+            const duplicatesToDelete = matches.slice(1);
+
+            console.error(`[INFO] Keeping most recent broadcast: ${matches[0].id} (${matches[0].snippet?.title})`);
+            console.error(`[INFO] Deleting ${duplicatesToDelete.length} duplicate broadcast(s)...`);
+
+            for (const duplicate of duplicatesToDelete) {
+                if (duplicate.id) {
+                    try {
+                        await deleteBroadcast(duplicate.id, options.credentialsPath, options.tokenPath);
+                        console.error(`[INFO] Deleted duplicate broadcast: ${duplicate.id} (${duplicate.snippet?.title})`);
+                    } catch (deleteError: any) {
+                        console.error(`[WARN] Failed to delete duplicate broadcast ${duplicate.id}:`, deleteError);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error(`[WARN] Failed to cleanup duplicate broadcasts for sheet:`, e);
+    }
+}
+
+/**
  * Clean up duplicate broadcasts (keep most recent, delete others)
  */
 export async function cleanupDuplicateBroadcasts(
@@ -425,7 +498,7 @@ export async function findOrCreateBroadcast(
             broadcastId = exactMatch.id;
             foundExistingBroadcast = true;
 
-            // Clean up any duplicates
+            // Clean up any duplicates (even if we found a match, there might be others)
             await cleanupDuplicateBroadcasts(title, options);
         } else {
             // Try fuzzy match for recent broadcasts
@@ -434,8 +507,15 @@ export async function findOrCreateBroadcast(
                 console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${recentMatch.title}"`);
                 broadcastId = recentMatch.id;
                 foundExistingBroadcast = true;
+                
+                // Clean up duplicates for the matched title too
+                await cleanupDuplicateBroadcasts(recentMatch.title, options);
             } else {
                 console.error(`[DEBUG] No matching broadcast found`);
+                
+                // Before creating a new one, check for ANY live broadcasts for this sheet that might be duplicates
+                // This catches cases where title formatting differs slightly
+                await cleanupDuplicateBroadcastsForSheet(sheet, event.summary ?? 'Untitled Event', options);
             }
         }
     } catch (searchError: any) {
