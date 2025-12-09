@@ -423,66 +423,101 @@ export async function tick(opts: {
     let expectedStreamKey: string | undefined;
 
     if (!st || st.eventKey !== eventKey) {
-        console.error(`[INFO] Sheet ${opts.sheet} - Creating new broadcast for event: ${title}`);
-        broadcastId = await withTimeout(
-            createBroadcastAndBind({
-                title,
-                description,
-                privacy,
-                streamId: opts.streamId,
-                streamKey: opts.streamKey,
-                credentialsPath: opts.credentialsPath,
-                tokenPath: opts.tokenPath,
-                scheduledStart: current.start
-            }),
-            30000, // 30 second timeout for YouTube operations
-            'YouTube broadcast creation'
-        );
-        console.error(`[DEBUG] Broadcast created successfully: ${broadcastId}`);
-
-        // Verify the actual broadcast title from YouTube API (not just our local variable)
-        const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+        // Before creating, check if a broadcast with this exact title already exists
+        console.error(`[INFO] Sheet ${opts.sheet} - Checking for existing broadcast with title "${title}"...`);
+        let foundExistingBroadcast = false;
         try {
             const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
             const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
             const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
             const youtube = google.youtube('v3');
 
-            const verifyResp = await youtube.liveBroadcasts.list({
+            // Search for broadcasts with matching title to avoid duplicates
+            const searchResp = await youtube.liveBroadcasts.list({
                 auth,
-                part: ['snippet'],
-                id: [broadcastId],
-                maxResults: 1
+                part: ['snippet', 'status'],
+                mine: true,
+                maxResults: 50
             });
 
-            const actualBroadcast = verifyResp.data.items?.[0];
-            if (actualBroadcast) {
-                const actualTitle = actualBroadcast.snippet?.title ?? '';
+            const matchingBroadcast = searchResp.data.items?.find(
+                (b) => b.snippet?.title === title && b.status?.lifeCycleStatus !== 'complete'
+            );
 
-                // Verify sheet identifier is present
-                if (!actualTitle.includes(expectedSheetInTitle)) {
-                    console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
-                    console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
-                    console.error(`[ERROR] This may indicate a configuration issue. Broadcast should be for Sheet ${opts.sheet}.`);
-                } else if (actualTitle !== title) {
-                    console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
-                    console.error(`[WARN] Title contains correct sheet identifier but format differs`);
-                } else {
-                    console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches expected: "${actualTitle}"`);
-                    console.error(`[DEBUG] Sheet identifier verified: ${expectedSheetInTitle}`);
-                }
-            } else {
-                console.error(`[WARN] Could not fetch broadcast ${broadcastId} for title verification (non-fatal)`);
+            if (matchingBroadcast && matchingBroadcast.id) {
+                console.error(`[INFO] Found existing broadcast with exact title "${title}": ${matchingBroadcast.id}`);
+                console.error(`[INFO] Reusing existing broadcast instead of creating duplicate`);
+                broadcastId = matchingBroadcast.id;
+                writeState({ eventKey, broadcastId });
+                foundExistingBroadcast = true;
             }
-        } catch (verifyError: any) {
-            console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
-            // Fallback: at least verify our local title variable
-            if (!title.includes(expectedSheetInTitle)) {
-                console.error(`[ERROR] Local title "${title}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
-            }
+        } catch (searchError: any) {
+            console.error(`[WARN] Failed to search for existing broadcasts (non-fatal):`, searchError);
         }
 
-        writeState({ eventKey, broadcastId });
+        // Only create new broadcast if we didn't find an existing one
+        if (!foundExistingBroadcast) {
+            console.error(`[INFO] Sheet ${opts.sheet} - Creating new broadcast for event: ${title}`);
+            broadcastId = await withTimeout(
+                createBroadcastAndBind({
+                    title,
+                    description,
+                    privacy,
+                    streamId: opts.streamId,
+                    streamKey: opts.streamKey,
+                    credentialsPath: opts.credentialsPath,
+                    tokenPath: opts.tokenPath,
+                    scheduledStart: current.start
+                }),
+                30000, // 30 second timeout for YouTube operations
+                'YouTube broadcast creation'
+            );
+            console.error(`[DEBUG] Broadcast created successfully: ${broadcastId}`);
+
+            // Verify the actual broadcast title from YouTube API (not just our local variable)
+            const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+            try {
+                const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+                const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+                const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+                const youtube = google.youtube('v3');
+
+                const verifyResp = await youtube.liveBroadcasts.list({
+                    auth,
+                    part: ['snippet'],
+                    id: [broadcastId],
+                    maxResults: 1
+                });
+
+                const actualBroadcast = verifyResp.data.items?.[0];
+                if (actualBroadcast) {
+                    const actualTitle = actualBroadcast.snippet?.title ?? '';
+
+                    // Verify sheet identifier is present
+                    if (!actualTitle.includes(expectedSheetInTitle)) {
+                        console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+                        console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
+                        console.error(`[ERROR] This may indicate a configuration issue. Broadcast should be for Sheet ${opts.sheet}.`);
+                    } else if (actualTitle !== title) {
+                        console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
+                        console.error(`[WARN] Title contains correct sheet identifier but format differs`);
+                    } else {
+                        console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches expected: "${actualTitle}"`);
+                        console.error(`[DEBUG] Sheet identifier verified: ${expectedSheetInTitle}`);
+                    }
+                } else {
+                    console.error(`[WARN] Could not fetch broadcast ${broadcastId} for title verification (non-fatal)`);
+                }
+            } catch (verifyError: any) {
+                console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
+                // Fallback: at least verify our local title variable
+                if (!title.includes(expectedSheetInTitle)) {
+                    console.error(`[ERROR] Local title "${title}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+                }
+            }
+
+            writeState({ eventKey, broadcastId });
+        }
     } else {
         // State exists and eventKey matches - verify the broadcast is still valid
         broadcastId = st.broadcastId;
@@ -538,60 +573,95 @@ export async function tick(opts: {
             shouldReuseBroadcast = true;
         }
 
-        // If we shouldn't reuse the broadcast, clear state and create a new one
+        // If we shouldn't reuse the broadcast, check if one with exact title already exists
         if (!shouldReuseBroadcast) {
-            console.error(`[INFO] Clearing state and creating new broadcast for Sheet ${opts.sheet}...`);
-            clearState();
-
-            const newBroadcastId = await withTimeout(
-                createBroadcastAndBind({
-                    title,
-                    description,
-                    privacy,
-                    streamId: opts.streamId,
-                    streamKey: opts.streamKey,
-                    credentialsPath: opts.credentialsPath,
-                    tokenPath: opts.tokenPath,
-                    scheduledStart: current.start
-                }),
-                30000,
-                'YouTube broadcast creation (after mismatch)'
-            );
-            console.error(`[DEBUG] New broadcast created successfully: ${newBroadcastId}`);
-
-            // Verify the actual broadcast title from YouTube API
-            const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+            console.error(`[INFO] Existing broadcast doesn't match, checking for broadcast with exact title "${title}"...`);
+            
+            let foundExistingBroadcast = false;
             try {
                 const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
                 const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
                 const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
                 const youtube = google.youtube('v3');
 
-                const verifyResp = await youtube.liveBroadcasts.list({
+                // Search for broadcasts with matching title to avoid duplicates
+                const searchResp = await youtube.liveBroadcasts.list({
                     auth,
-                    part: ['snippet'],
-                    id: [newBroadcastId],
-                    maxResults: 1
+                    part: ['snippet', 'status'],
+                    mine: true,
+                    maxResults: 50
                 });
 
-                const actualBroadcast = verifyResp.data.items?.[0];
-                if (actualBroadcast) {
-                    const actualTitle = actualBroadcast.snippet?.title ?? '';
-                    if (!actualTitle.includes(expectedSheetInTitle)) {
-                        console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
-                        console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
-                    } else if (actualTitle !== title) {
-                        console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
-                    } else {
-                        console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches: "${actualTitle}"`);
-                    }
+                const matchingBroadcast = searchResp.data.items?.find(
+                    (b) => b.snippet?.title === title && b.status?.lifeCycleStatus !== 'complete'
+                );
+
+                if (matchingBroadcast && matchingBroadcast.id) {
+                    console.error(`[INFO] Found existing broadcast with exact title "${title}": ${matchingBroadcast.id}`);
+                    console.error(`[INFO] Reusing existing broadcast instead of creating duplicate`);
+                    broadcastId = matchingBroadcast.id;
+                    writeState({ eventKey, broadcastId });
+                    foundExistingBroadcast = true;
                 }
-            } catch (verifyError: any) {
-                console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
+            } catch (searchError: any) {
+                console.error(`[WARN] Failed to search for existing broadcasts (non-fatal):`, searchError);
             }
 
-            broadcastId = newBroadcastId;
-            writeState({ eventKey, broadcastId });
+            // Only create new broadcast if we didn't find an existing one
+            if (!foundExistingBroadcast) {
+                console.error(`[INFO] No existing broadcast found with title "${title}", creating new one...`);
+                clearState();
+
+                const newBroadcastId = await withTimeout(
+                    createBroadcastAndBind({
+                        title,
+                        description,
+                        privacy,
+                        streamId: opts.streamId,
+                        streamKey: opts.streamKey,
+                        credentialsPath: opts.credentialsPath,
+                        tokenPath: opts.tokenPath,
+                        scheduledStart: current.start
+                    }),
+                    30000,
+                    'YouTube broadcast creation (after mismatch)'
+                );
+                console.error(`[DEBUG] New broadcast created successfully: ${newBroadcastId}`);
+
+                // Verify the actual broadcast title from YouTube API
+                const expectedSheetInTitle = `Sheet ${opts.sheet}`;
+                try {
+                    const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+                    const resolvedTokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+                    const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+                    const youtube = google.youtube('v3');
+
+                    const verifyResp = await youtube.liveBroadcasts.list({
+                        auth,
+                        part: ['snippet'],
+                        id: [newBroadcastId],
+                        maxResults: 1
+                    });
+
+                    const actualBroadcast = verifyResp.data.items?.[0];
+                    if (actualBroadcast) {
+                        const actualTitle = actualBroadcast.snippet?.title ?? '';
+                        if (!actualTitle.includes(expectedSheetInTitle)) {
+                            console.error(`[ERROR] ACTUAL broadcast title "${actualTitle}" does not include expected sheet identifier "${expectedSheetInTitle}"`);
+                            console.error(`[ERROR] Expected title was "${title}" but YouTube has "${actualTitle}"`);
+                        } else if (actualTitle !== title) {
+                            console.error(`[WARN] Broadcast title mismatch: expected "${title}" but YouTube has "${actualTitle}"`);
+                        } else {
+                            console.error(`[DEBUG] Broadcast title verified - actual YouTube title matches: "${actualTitle}"`);
+                        }
+                    }
+                } catch (verifyError: any) {
+                    console.error(`[WARN] Failed to verify actual broadcast title (non-fatal):`, verifyError);
+                }
+
+                broadcastId = newBroadcastId;
+                writeState({ eventKey, broadcastId });
+            }
         } else {
             console.error(`[DEBUG] Reusing existing broadcast: ${broadcastId}`);
         }
