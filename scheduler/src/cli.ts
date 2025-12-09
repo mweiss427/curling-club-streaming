@@ -150,12 +150,18 @@ async function main(): Promise<void> {
     }
 
     if (cmd === 'yt-streams') {
+        const streamKey = process.env.YOUTUBE_STREAM_KEY;
         const streams = await listLiveStreams({
             credentialsPath: (argv.credentials as string | undefined) ?? process.env.YOUTUBE_OAUTH_CREDENTIALS,
-            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH
+            tokenPath: (argv.token as string | undefined) ?? process.env.YOUTUBE_TOKEN_PATH,
+            streamKey
         });
         if (streams.length === 0) {
-            console.log('No live streams found. Create one in YouTube Live Control Room.');
+            if (streamKey) {
+                console.log(`No live streams found matching stream key '${streamKey}'. Create one in YouTube Live Control Room or check your YOUTUBE_STREAM_KEY environment variable.`);
+            } else {
+                console.log('No live streams found. Create one in YouTube Live Control Room.');
+            }
             return;
         }
         for (const s of streams) {

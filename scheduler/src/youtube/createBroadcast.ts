@@ -27,17 +27,17 @@ export async function createBroadcastAndBind(opts: {
     const youtube = google.youtube('v3');
 
     console.error(`[DEBUG] Creating broadcast...`);
-    
+
     // Build snippet - always include scheduledStartTime (required by YouTube API)
     const snippet: any = {
         title: opts.title,
         description: opts.description
     };
-    
+
     // YouTube API requires scheduledStartTime, but it must be in the future
     const now = new Date();
     let scheduledStartTime: string;
-    
+
     if (opts.scheduledStart) {
         const scheduledTime = new Date(opts.scheduledStart);
         if (scheduledTime > now) {
@@ -56,9 +56,9 @@ export async function createBroadcastAndBind(opts: {
         scheduledStartTime = futureTime.toISOString();
         console.error(`[DEBUG] No scheduledStartTime provided, setting to ${scheduledStartTime} (2 minutes from now)`);
     }
-    
+
     snippet.scheduledStartTime = scheduledStartTime;
-    
+
     const insertRes = await youtube.liveBroadcasts.insert({
         auth,
         part: ['snippet', 'status', 'contentDetails'],
@@ -178,7 +178,7 @@ export async function deleteBroadcast(
     }
 }
 
-export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
+export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number; streamKey?: string } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
     const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
     const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
     const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath });
@@ -190,9 +190,16 @@ export async function listLiveStreams(opts: { credentialsPath?: string; tokenPat
         maxResults: opts.maxResults ?? 50
     });
     const items = resp.data.items ?? [];
-    return items
+    let filtered = items
         .filter((s) => Boolean(s.id))
         .map((s) => ({ id: String(s.id), streamName: s.cdn?.ingestionInfo?.streamName ?? undefined, title: s.snippet?.title ?? undefined }));
+
+    // Filter by streamKey if provided
+    if (opts.streamKey) {
+        filtered = filtered.filter((s) => s.streamName === opts.streamKey);
+    }
+
+    return filtered;
 }
 
 
