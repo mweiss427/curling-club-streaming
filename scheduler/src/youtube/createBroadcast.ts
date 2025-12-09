@@ -127,6 +127,29 @@ export async function updateBroadcastTitle(
     console.error(`[DEBUG] Broadcast title updated successfully`);
 }
 
+export async function deleteBroadcast(
+    broadcastId: string,
+    credentialsPath?: string,
+    tokenPath?: string
+): Promise<void> {
+    console.error(`[DEBUG] Deleting broadcast ${broadcastId}...`);
+    const keyPath = credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
+    const resolvedTokenPath = tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;
+    const auth = await getOAuthClientWithToken({ clientPath: keyPath, tokenPath: resolvedTokenPath });
+    const youtube = google.youtube('v3');
+
+    try {
+        await youtube.liveBroadcasts.delete({
+            auth,
+            id: broadcastId
+        });
+        console.error(`[DEBUG] Broadcast ${broadcastId} deleted successfully`);
+    } catch (error: any) {
+        console.error(`[WARN] Failed to delete broadcast ${broadcastId}:`, error);
+        throw error;
+    }
+}
+
 export async function listLiveStreams(opts: { credentialsPath?: string; tokenPath?: string; maxResults?: number } = {}): Promise<Array<{ id: string; streamName?: string; title?: string }>> {
     const keyPath = opts.credentialsPath ?? process.env.YOUTUBE_OAUTH_CREDENTIALS ?? path.resolve(process.cwd(), 'youtube.credentials.json');
     const tokenPath = opts.tokenPath ?? process.env.YOUTUBE_TOKEN_PATH;

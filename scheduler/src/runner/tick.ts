@@ -1,5 +1,5 @@
 import { listCurrentSingle, SheetKey } from '../google/list.js';
-import { createBroadcastAndBind, Privacy } from '../youtube/createBroadcast.js';
+import { createBroadcastAndBind, deleteBroadcast, Privacy } from '../youtube/createBroadcast.js';
 import { getOAuthClient as getOAuthClientWithToken } from '../youtube/auth.js';
 import { google } from 'googleapis';
 import { execFile, exec, spawn } from 'node:child_process';
@@ -424,6 +424,7 @@ export async function tick(opts: {
 
     if (!st || st.eventKey !== eventKey) {
         // Before creating, check if a broadcast with this exact title already exists
+        // CRITICAL: Find ALL duplicates and clean them up to prevent issues with concurrent streams
         console.error(`[INFO] Sheet ${opts.sheet} - Checking for existing broadcast with title "${title}"...`);
         let foundExistingBroadcast = false;
         try {
@@ -440,26 +441,58 @@ export async function tick(opts: {
                 maxResults: 50
             });
 
-            // Look for exact title match first
-            // Check for any non-complete status (upcoming, live, created, etc.)
+            // Find ALL broadcasts with exact title match (not just first one)
+            // This is critical for concurrent streams - we need to find and clean up duplicates
             console.error(`[DEBUG] Searching ${searchResp.data.items?.length ?? 0} broadcasts for exact title match: "${title}"`);
-            let matchingBroadcast = searchResp.data.items?.find(
+            const exactMatches = searchResp.data.items?.filter(
                 (b) => {
                     const broadcastTitle = b.snippet?.title ?? '';
                     const status = b.status?.lifeCycleStatus;
                     const isExactMatch = broadcastTitle === title;
                     const isNotComplete = status !== 'complete';
-                    
-                    if (isExactMatch && isNotComplete) {
-                        console.error(`[DEBUG] Found exact title match: "${broadcastTitle}" with status: ${status}`);
-                        return true;
-                    }
-                    return false;
+                    return isExactMatch && isNotComplete;
                 }
-            );
+            ) ?? [];
+
+            let matchingBroadcast = undefined as google.youtube.Schema$LiveBroadcast | undefined;
+
+            if (exactMatches.length > 0) {
+                console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
+                
+                // If multiple found, keep the most recent one, delete the rest
+                if (exactMatches.length > 1) {
+                    console.error(`[WARN] Found ${exactMatches.length} duplicate broadcasts! Cleaning up duplicates...`);
+                    
+                    // Sort by publishedAt (most recent first)
+                    exactMatches.sort((a, b) => {
+                        const aTime = a.snippet?.publishedAt ? new Date(a.snippet.publishedAt).getTime() : 0;
+                        const bTime = b.snippet?.publishedAt ? new Date(b.snippet.publishedAt).getTime() : 0;
+                        return bTime - aTime; // Most recent first
+                    });
+                    
+                    // Keep the first (most recent), delete the rest
+                    matchingBroadcast = exactMatches[0];
+                    const duplicatesToDelete = exactMatches.slice(1);
+                    
+                    console.error(`[INFO] Keeping most recent broadcast: ${matchingBroadcast.id}`);
+                    console.error(`[INFO] Deleting ${duplicatesToDelete.length} duplicate broadcast(s)...`);
+                    
+                    for (const duplicate of duplicatesToDelete) {
+                        if (duplicate.id) {
+                            try {
+                                await deleteBroadcast(duplicate.id, opts.credentialsPath, opts.tokenPath);
+                                console.error(`[INFO] Deleted duplicate broadcast: ${duplicate.id}`);
+                            } catch (deleteError: any) {
+                                console.error(`[WARN] Failed to delete duplicate broadcast ${duplicate.id}:`, deleteError);
+                            }
+                        }
+                    }
+                } else {
+                    matchingBroadcast = exactMatches[0];
+                }
+            }
 
             // If no exact match, look for broadcasts with same event name and sheet, created recently (last 30 minutes)
-            // This catches cases where title format might differ slightly or broadcasts created just before this check
             if (!matchingBroadcast) {
                 const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
                 const eventName = current.summary ?? 'Untitled Event';
@@ -491,8 +524,7 @@ export async function tick(opts: {
             }
 
             if (matchingBroadcast && matchingBroadcast.id) {
-                console.error(`[INFO] Found existing broadcast with title "${matchingBroadcast.snippet?.title}": ${matchingBroadcast.id}`);
-                console.error(`[INFO] Reusing existing broadcast instead of creating duplicate`);
+                console.error(`[INFO] Using existing broadcast: ${matchingBroadcast.id} (title: "${matchingBroadcast.snippet?.title}")`);
                 broadcastId = matchingBroadcast.id;
                 writeState({ eventKey, broadcastId });
                 foundExistingBroadcast = true;
@@ -622,6 +654,7 @@ export async function tick(opts: {
         }
 
         // If we shouldn't reuse the broadcast, check if one with exact title already exists
+        // CRITICAL: Find ALL duplicates and clean them up to prevent issues with concurrent streams
         if (!shouldReuseBroadcast) {
             console.error(`[INFO] Existing broadcast doesn't match, checking for broadcast with exact title "${title}"...`);
 
@@ -640,33 +673,65 @@ export async function tick(opts: {
                     maxResults: 50
                 });
 
-                // Look for exact title match first
-                // Check for any non-complete status (upcoming, live, created, etc.)
+                // Find ALL broadcasts with exact title match (not just first one)
+                // This is critical for concurrent streams - we need to find and clean up duplicates
                 console.error(`[DEBUG] Searching ${searchResp.data.items?.length ?? 0} broadcasts for exact title match: "${title}"`);
-                let matchingBroadcast = searchResp.data.items?.find(
+                const exactMatches = searchResp.data.items?.filter(
                     (b) => {
                         const broadcastTitle = b.snippet?.title ?? '';
                         const status = b.status?.lifeCycleStatus;
                         const isExactMatch = broadcastTitle === title;
                         const isNotComplete = status !== 'complete';
-                        
-                        if (isExactMatch && isNotComplete) {
-                            console.error(`[DEBUG] Found exact title match: "${broadcastTitle}" with status: ${status}`);
-                            return true;
-                        }
-                        return false;
+                        return isExactMatch && isNotComplete;
                     }
-                );
+                ) ?? [];
+
+                let matchingBroadcast = undefined as google.youtube.Schema$LiveBroadcast | undefined;
+
+                if (exactMatches.length > 0) {
+                    console.error(`[INFO] Found ${exactMatches.length} broadcast(s) with exact title "${title}"`);
+                    
+                    // If multiple found, keep the most recent one, delete the rest
+                    if (exactMatches.length > 1) {
+                        console.error(`[WARN] Found ${exactMatches.length} duplicate broadcasts! Cleaning up duplicates...`);
+                        
+                        // Sort by publishedAt (most recent first)
+                        exactMatches.sort((a, b) => {
+                            const aTime = a.snippet?.publishedAt ? new Date(a.snippet.publishedAt).getTime() : 0;
+                            const bTime = b.snippet?.publishedAt ? new Date(b.snippet.publishedAt).getTime() : 0;
+                            return bTime - aTime; // Most recent first
+                        });
+                        
+                        // Keep the first (most recent), delete the rest
+                        matchingBroadcast = exactMatches[0];
+                        const duplicatesToDelete = exactMatches.slice(1);
+                        
+                        console.error(`[INFO] Keeping most recent broadcast: ${matchingBroadcast.id}`);
+                        console.error(`[INFO] Deleting ${duplicatesToDelete.length} duplicate broadcast(s)...`);
+                        
+                        for (const duplicate of duplicatesToDelete) {
+                            if (duplicate.id) {
+                                try {
+                                    await deleteBroadcast(duplicate.id, opts.credentialsPath, opts.tokenPath);
+                                    console.error(`[INFO] Deleted duplicate broadcast: ${duplicate.id}`);
+                                } catch (deleteError: any) {
+                                    console.error(`[WARN] Failed to delete duplicate broadcast ${duplicate.id}:`, deleteError);
+                                }
+                            }
+                        }
+                    } else {
+                        matchingBroadcast = exactMatches[0];
+                    }
+                }
 
                 // If no exact match, look for broadcasts with same event name and sheet, created recently (last 30 minutes)
-                // This catches cases where title format might differ slightly or broadcasts created just before this check
                 if (!matchingBroadcast) {
                     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
                     const eventName = current.summary ?? 'Untitled Event';
                     const sheetPattern = `Sheet ${opts.sheet}`;
-                    
+
                     console.error(`[DEBUG] No exact match found, searching for recent broadcasts with event "${eventName}" and sheet "${sheetPattern}"`);
-                    
+
                     matchingBroadcast = searchResp.data.items?.find((b) => {
                         const broadcastTitle = b.snippet?.title ?? '';
                         const created = b.snippet?.publishedAt;
@@ -675,14 +740,14 @@ export async function tick(opts: {
                         const hasEventName = broadcastTitle.includes(eventName);
                         const hasSheet = broadcastTitle.includes(sheetPattern);
                         const notComplete = status !== 'complete';
-                        
+
                         if (isRecent && hasEventName && hasSheet && notComplete) {
                             console.error(`[DEBUG] Found recent similar broadcast: "${broadcastTitle}" (status: ${status}, created: ${created})`);
                             return true;
                         }
                         return false;
                     });
-                    
+
                     if (matchingBroadcast) {
                         console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${matchingBroadcast.snippet?.title}"`);
                     } else {
@@ -691,8 +756,7 @@ export async function tick(opts: {
                 }
 
                 if (matchingBroadcast && matchingBroadcast.id) {
-                    console.error(`[INFO] Found existing broadcast with title "${matchingBroadcast.snippet?.title}": ${matchingBroadcast.id}`);
-                    console.error(`[INFO] Reusing existing broadcast instead of creating duplicate`);
+                    console.error(`[INFO] Using existing broadcast: ${matchingBroadcast.id} (title: "${matchingBroadcast.snippet?.title}")`);
                     broadcastId = matchingBroadcast.id;
                     writeState({ eventKey, broadcastId });
                     foundExistingBroadcast = true;
