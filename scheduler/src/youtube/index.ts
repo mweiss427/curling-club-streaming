@@ -480,8 +480,11 @@ export async function findOrCreateBroadcast(
             }
         } catch (e: any) {
             console.error(`[WARN] Could not verify existing broadcast (non-fatal):`, e);
-            // If we can't verify, assume it's valid to avoid breaking functionality
-            return existingBroadcastId;
+            // If we can't verify, don't blindly return the existing broadcast ID
+            // This could cause Sheet B to use a Sheet A broadcast if verification fails
+            // Instead, continue to search/create logic to ensure we get the correct broadcast
+            console.error(`[WARN] Verification failed - will search for correct broadcast or create new one`);
+            // Don't return here - let the code continue to search/create logic below
         }
     }
 
@@ -507,12 +510,12 @@ export async function findOrCreateBroadcast(
                 console.error(`[INFO] Found recent broadcast with similar title (not exact match): "${recentMatch.title}"`);
                 broadcastId = recentMatch.id;
                 foundExistingBroadcast = true;
-                
+
                 // Clean up duplicates for the matched title too
                 await cleanupDuplicateBroadcasts(recentMatch.title, options);
             } else {
                 console.error(`[DEBUG] No matching broadcast found`);
-                
+
                 // Before creating a new one, check for ANY live broadcasts for this sheet that might be duplicates
                 // This catches cases where title formatting differs slightly
                 await cleanupDuplicateBroadcastsForSheet(sheet, event.summary ?? 'Untitled Event', options);
