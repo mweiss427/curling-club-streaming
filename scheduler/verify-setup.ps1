@@ -91,3 +91,6 @@ Write-Host "  - If all checks pass, you're ready for the test event" -Foreground
 Write-Host "  - Fix any ❌ errors before the event starts" -ForegroundColor Red
 Write-Host "  - Monitor with: npm run dev status-one" -ForegroundColor Cyan
 
+
+
+

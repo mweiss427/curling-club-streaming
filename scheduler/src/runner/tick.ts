@@ -1,6 +1,7 @@
 import { listCurrentSingle, SheetKey, SingleEvent } from '../google/list.js';
 import { findOrCreateBroadcast, checkBroadcastStatus, getBroadcastTitle, YouTubeOptions } from '../youtube/index.js';
 import { startOBS, stopOBS, isOBSRunning, waitForOBSReady, ensureStreamActive } from '../obs/index.js';
+import { closeConnection } from '../obs/websocket.js';
 import { readState, writeState, clearState, TickState } from '../system/index.js';
 import { withTimeout } from '../system/index.js';
 
@@ -80,10 +81,26 @@ export async function tick(opts: {
             await stopOBS();
             clearState(opts.sheet);
             console.error(`[INFO] Sheet ${opts.sheet} - OBS stopped, returning STOPPED`);
+            
+            // Clean up websocket connection before returning
+            try {
+                await closeConnection();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+            
             return 'STOPPED';
         }
         clearState(opts.sheet);
         console.error(`[INFO] Sheet ${opts.sheet} - No event and OBS not running, returning IDLE`);
+        
+        // Clean up websocket connection before returning
+        try {
+            await closeConnection();
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+        
         return 'IDLE';
     }
 
@@ -182,6 +199,13 @@ export async function tick(opts: {
             }
         }
 
+        // Clean up websocket connection before returning
+        try {
+            await closeConnection();
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+
         return 'STARTED';
     }
 
@@ -256,6 +280,13 @@ export async function tick(opts: {
             console.error(`[WARN] OBS_WEBSOCKET_PASSWORD not set, cannot verify stream started after OBS launch`);
         }
 
+        // Clean up websocket connection before returning
+        try {
+            await closeConnection();
+        } catch (e) {
+            // Ignore cleanup errors
+        }
+
         return 'STARTED';
     }
 
@@ -282,6 +313,13 @@ export async function tick(opts: {
         } catch (e) {
             console.error(`[WARN] Failed to validate stream status via websocket:`, e);
         }
+    }
+
+    // Clean up websocket connection before returning
+    try {
+        await closeConnection();
+    } catch (e) {
+        // Ignore cleanup errors
     }
 
     return 'ALREADY_LIVE';

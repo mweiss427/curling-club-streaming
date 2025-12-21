@@ -170,5 +170,16 @@ export async function closeConnection(): Promise<void> {
     connectionPromise = null;
 }
 
+/**
+ * Close connection after a short delay to allow any pending operations to complete
+ * This helps prevent connection leaks when ticks complete quickly
+ */
+export async function closeConnectionAfterDelay(delayMs: number = 1000): Promise<void> {
+    // Use setTimeout to close after delay without blocking
+    setTimeout(async () => {
+        await closeConnection();
+    }, delayMs);
+}
+
 
 
